@@ -1,0 +1,9 @@
+{
+  "_doc": "记忆来源闸:只从匹配这些片段的项目里 distill 入库(原始归档 raw_event 仍全量保留)。按你自己的项目名/路径片段填写。复制为 sources.json 后生效;不复制则回退用本示例。留空 approved_patterns 则对所有项目提纯。",
+  "approved_patterns": [
+    "/your-project-a",
+    "/your-project-b"
+  ],
+  "pending_incremental": [],
+  "never": ["测试", "test", "scratch", "tmp"]
+}
