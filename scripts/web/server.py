@@ -947,6 +947,8 @@ def _alibaba_key():
 
 def _set_env(updates):
     """把 updates 写回 .env(存在的键改值,不存在的追加),保留其它行与注释。"""
+    updates = {k: "".join(c for c in str(v) if c == "\t" or ord(c) >= 32)
+               for k, v in updates.items()}   # 去除换行等控制符,防 .env 行注入
     p = os.path.join(HUB, ".env")
     lines = open(p, encoding="utf-8").read().splitlines() if os.path.exists(p) else []
     keys, out, seen = set(updates), [], set()
