@@ -32,16 +32,22 @@ cd MemoryHub
 scripts/setup.sh          # 建虚拟环境、装依赖、初始化空库
 scripts/run_web.sh        # 启动本地面板 → http://127.0.0.1:7788
 ```
-首次打开面板,顶部会给你三步引导:① 填 `ALIBABA_KEY` → ② 导入你的 AI 记忆 → ③ 在「待确认」里逐条批准。
+之后**双击启动**即可:macOS `打开记忆面板.command`、Windows `打开记忆面板.bat`(首次会自动初始化)。首次打开面板顶部会给你三步引导:① 配 API Key → ② 导入记忆 → ③ 在「待确认」里逐条批准。
 
-`.env` 里的 `ALIBABA_KEY`(阿里云百炼 DashScope)用于提纯 / 向量化 / 语义召回;**不填也能用**浏览 + 关键词检索。
-`MINIMAX_KEY`、`PERSONA_NAME` 均为可选(见 `.env.example` 注释)。
+> macOS 首次双击若被拦(“来自身份不明的开发者”),**右键 → 打开**一次即可;或到 系统设置 → 隐私与安全性 →“仍要打开”。
+> 想要**无终端窗口 + 自定义图标**的 App:`osacompile -o MemoryHub.app -e 'do shell script "bash \"'"$PWD"'/打开记忆面板.command\""'`,再在其“显示简介”里把图标图片粘上去。
 
-## 一键导入 Claude 记忆
-1. 打开 Claude → **Settings → Privacy → Export data**,稍等收到导出邮件,下载并解压 zip。
-2. 找到里面的 `memories.json`(Claude 对你的 AI 记忆)。
-3. 在面板 **「导入」** 页,把 `memories.json` 拖进去(或点选文件)。
-4. 系统把它拆成候选、过四道保真闸,落到 **「待确认队列」**;你逐条**批准 / 丢弃**——AI 推断的记忆绝不自动入库。
+### 配 API Key(在面板里,不用改文件)
+打开 **「设置 → AI 模型 · API Key」**:选一个 provider、粘 key、点**测试连通**。支持 **阿里云百炼(默认)/ OpenAI / DeepSeek / 智谱GLM / Kimi / SiliconFlow**,或任意 OpenAI 兼容服务。**不填也能用**浏览 + 关键词检索;要提纯 / 语义召回才需要 key。
+- 推荐:提纯用强指令模型(qwen3-max / deepseek-chat / gpt-4.1-mini / glm-4),嵌入用 text-embedding-v4 / text-embedding-3-small / bge-m3。
+- 注意:DeepSeek、Kimi 不提供嵌入,需在 `.env` 另配一家嵌入(如 openai / dashscope)。`PERSONA_NAME` 可选(给提纯 prompt 署名)。
+
+## 导入记忆
+面板 **「导入」** 页两种方式:
+- **本机 Claude Code(免导出)**:点「🔍 扫描本机 Claude Code 对话」,直读 `~/.claude/projects`。
+- **拖入导出**:Claude(Settings → Privacy → Export data)或 ChatGPT(Settings → Data controls → Export)的导出,**整个 zip 直接拖进去**(自动识别 `memories.json` / `conversations.json`),也可拖单个 json。
+
+拆成候选 → 过四道保真闸 → 落「待确认队列」,你逐条**批准 / 丢弃**;AI 推断的记忆**绝不自动入库**。
 
 > ChatGPT / claude.ai 网页对话:同样是账号级导出里的 `conversations.json`,放进 `imports/` 后跑对应的 `scripts/ingest_*.py`。
 
