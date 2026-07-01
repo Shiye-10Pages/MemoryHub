@@ -49,6 +49,7 @@ main{padding:26px 36px 60px;max-width:1200px;margin:0 auto;width:100%}
 input,select{height:38px;border:1px solid var(--bd2);border-radius:10px;padding:0 12px;font-size:13px;background:var(--surf);color:var(--tx);outline:none;transition:.12s}
 input:focus,select:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--ac-soft)}
 input[type=text]{flex:1;min-width:200px}
+@keyframes mhpulse{0%{transform:translate(-50%,-50%) scale(.85);opacity:.55}100%{transform:translate(-50%,-50%) scale(2.5);opacity:0}}
 .btn{height:38px;border:1px solid var(--bd2);background:var(--surf);border-radius:10px;padding:0 16px;cursor:pointer;font-size:13px;color:var(--tx);transition:.12s}
 .btn:hover{background:var(--bg)}
 .btn.pri{background:var(--ac);border-color:var(--ac);color:#fff}
@@ -442,7 +443,8 @@ function buildMapShell(){
   <div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;max-height:60px;overflow:auto">${leg}</div></div>
   <div id="mapRes"></div>
   <div id="mapWrap" style="position:relative;height:78vh;min-height:420px;background:#fbfbfd;border:1px solid var(--bd);border-radius:10px;overflow:hidden">
-    <button class="btn" style="position:absolute;top:10px;right:10px;z-index:3" onclick="mapFull()">⛶ 全屏</button>
+    <button class="btn" style="position:absolute;top:10px;right:10px;z-index:5" onclick="mapFull()">⛶ 全屏</button>
+    <div id="mapPulse" style="position:absolute;left:0;top:0;pointer-events:none;z-index:3;display:none;border:2px solid #5b50e6;border-radius:50%;animation:mhpulse 1.5s ease-out infinite"></div>
     <div id="mapTip" style="position:absolute;left:0;top:0;pointer-events:none;z-index:4;display:none;max-width:260px;background:rgba(20,22,30,.93);color:#fff;border-radius:9px;padding:8px 11px;box-shadow:0 6px 20px rgba(0,0,0,.28);transform:translate(-50%,-100%)"></div>
     <div id="fg" style="width:100%;height:100%"></div>
   </div>`;
@@ -467,7 +469,7 @@ function initFG(){
     .nodeCanvasObjectMode(()=>'replace')
     .nodeCanvasObject((n,ctx,scale)=>drawFGNode(n,ctx,scale))
     .nodePointerAreaPaint((n,color,ctx)=>fgPointerArea(n,color,ctx))
-    .onRenderFramePost((ctx,scale)=>{drawFGLabels(ctx,scale);drawFocusPulse(ctx,scale);updateMapTip();})
+    .onRenderFramePost((ctx,scale)=>{drawFGLabels(ctx,scale);updateMapOverlays();})
     .onNodeHover(n=>fgHover(n)).onNodeClick(n=>fgClick(n))
     .onBackgroundClick(()=>mapClearSel());
   fg.d3Force('center',null);
@@ -527,17 +529,6 @@ function drawFGLabels(ctx,scale){   // 独立标签层:优先级排序 + 屏内�
   const pts=(focusNodeObj?[focusNodeObj]:[]).concat(hiPts,normPts);
   for(const n of pts){if(drawn>=40)break;if(fgLabel(ctx,scale,n,occ,false))drawn++;}
 }
-function drawFocusPulse(ctx,scale){   // 聚焦节点:向外扩散的脉冲环,让选中"活"起来
-  if(!mapS.focus||!mapS.fg)return;
-  const n=mapS.fg.graphData().nodes.find(x=>x.id===mapS.focus);
-  if(!n||n.x==null)return;
-  const t=(Date.now()%1500)/1500, base=fgCR(n);
-  const col=n.cluster<0?'#5b50e6':ccolor(n.cluster);
-  ctx.save();
-  ctx.globalAlpha=0.55*(1-t);ctx.lineWidth=(2.2*(1-t)+0.4)/scale;ctx.strokeStyle=col;
-  ctx.beginPath();ctx.arc(n.x,n.y,base+2+t*13,0,6.283);ctx.stroke();
-  ctx.restore();
-}
 function setMapTipContent(n){   // 悬浮卡内容(悬浮时设一次,不逐帧改)
   const tip=document.getElementById('mapTip');if(!tip||!mapS.data)return;
   const p=mapS.data.points[n.idx];if(!p)return;
@@ -546,13 +537,19 @@ function setMapTipContent(n){   // 悬浮卡内容(悬浮时设一次,不逐帧�
     +`<div style="opacity:.82;font-size:11px;margin-top:3px">${esc(p.type||'')} · 置信 ${p.confidence!=null?Number(p.confidence).toFixed(2):'—'} · ${nb} 个关联</div>`
     +`<div style="opacity:.6;font-size:10.5px;margin-top:3px">点击 → 聚焦并顺藤摸瓜</div>`;
 }
-function updateMapTip(){   // 逐帧把悬浮卡粘到节点上方(仅悬浮时,近零开销)
-  const tip=document.getElementById('mapTip');if(!tip)return;
-  const n=mapS.hoverNode;
-  if(!n||n.t==='cl'||n.x==null||!mapS.fg){if(tip.style.display!=='none')tip.style.display='none';return;}
-  const sc=mapS.fg.graph2ScreenCoords(n.x,n.y);
-  tip.style.left=sc.x+'px';tip.style.top=(sc.y-fgCR(n)*mapS.fg.zoom()-7)+'px';
-  if(tip.style.display!=='block')tip.style.display='block';
+function updateMapOverlays(){   // 悬浮卡 + 聚焦脉冲环:DOM 覆盖层(CSS 自跑动画),空闲零开销、不逐帧重绘 canvas
+  if(!mapS.fg)return;
+  const tip=document.getElementById('mapTip'),n=mapS.hoverNode;
+  if(tip){
+    if(!n||n.t==='cl'||n.x==null){if(tip.style.display!=='none')tip.style.display='none';}
+    else{const sc=mapS.fg.graph2ScreenCoords(n.x,n.y);tip.style.left=sc.x+'px';tip.style.top=(sc.y-fgCR(n)*mapS.fg.zoom()-7)+'px';if(tip.style.display!=='block')tip.style.display='block';}
+  }
+  const ring=document.getElementById('mapPulse');
+  if(ring){
+    const fn=mapS.focus?mapS.fg.graphData().nodes.find(x=>x.id===mapS.focus):null;
+    if(fn&&fn.x!=null){const sc=mapS.fg.graph2ScreenCoords(fn.x,fn.y),d=Math.max(16,fgCR(fn)*mapS.fg.zoom()*2.1);ring.style.left=sc.x+'px';ring.style.top=sc.y+'px';ring.style.width=d+'px';ring.style.height=d+'px';ring.style.borderColor=(fn.cluster<0?'#5b50e6':ccolor(fn.cluster));if(ring.style.display!=='block')ring.style.display='block';}
+    else if(ring.style.display!=='none')ring.style.display='none';
+  }
 }
 function fgHover(n){
   const e=document.getElementById('fg');
@@ -570,7 +567,7 @@ function fgClick(n){
   if(n.t==='cl'){mapGoCluster(n.cluster);return;}
   mapS.focus=n.id;mapS.search=null;
   const hi=new Set([n.id]),hiL=new Set();(mapS.adj[n.id]||[]).forEach(m=>{hi.add(m);hiL.add(n.id<m?n.id+'-'+m:m+'-'+n.id);});setBase(hi,hiL);
-  mapS.fg.centerAt(n.x,n.y,600);mapS.fg.zoom(Math.max(2.4,mapS.fg.zoom()),600);
+  mapS.fg.centerAt(n.x,n.y,600);mapS.fg.zoom(Math.max(2.4,mapS.fg.zoom()),600);updateMapOverlays();
   const P=mapS.data.points,p=P[n.idx];
   const nbl=(p.nbr||[]).map(([j,s])=>`<span class="chip" style="cursor:pointer;background:${ccolor(P[j].cluster)}1a;color:${ccolor(P[j].cluster)}" onclick="fgFocusIdx(${j})">${esc(P[j].claim).slice(0,20)} · ${s}</span>`).join(' ')||'<span style="color:var(--faint)">无近邻</span>';
   $('#mapRes').innerHTML=`<div class="panel" style="padding:12px 14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><b>${esc(p.claim).slice(0,72)}</b><div class="kv" style="margin-top:3px">${esc(p.type)} · 置信 ${p.confidence!=null?Number(p.confidence).toFixed(2):'—'}</div></div><div style="white-space:nowrap"><button class="btn pri" onclick="openD('${p.id}')">看详情</button> <button class="btn" onclick="mapReset()">← 返回</button></div></div><div class="kv" style="margin-top:8px">关联最高(点它换中心,顺藤摸瓜):</div><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">${nbl}</div></div>`;
@@ -584,7 +581,7 @@ function mapGoCluster(cid){
   const xs=ns.map(n=>n.x),ys=ns.map(n=>n.y);
   mapS.fg.centerAt((Math.min(...xs)+Math.max(...xs))/2,(Math.min(...ys)+Math.max(...ys))/2,600);mapS.fg.zoom(2.1,600);
 }
-function mapClearSel(){mapS.focus=null;mapS.search=null;setBase(new Set(),new Set());$('#mapRes').innerHTML='';const i=$('#mq');if(i&&!mapS.q)i.value='';}  // 点空白:只清选中,保留缩放位置
+function mapClearSel(){mapS.focus=null;mapS.search=null;mapS.hoverNode=null;setBase(new Set(),new Set());$('#mapRes').innerHTML='';const i=$('#mq');if(i&&!mapS.q)i.value='';updateMapOverlays();}  // 点空白:只清选中,保留缩放位置
 function mapReset(){mapClearSel();if(mapS.fg)mapS.fg.zoomToFit(500,50);}  // 复位视图/返回:清选中 + 缩放回全局
 function mapFull(){const w=document.getElementById('mapWrap');if(!w)return;if(!document.fullscreenElement)w.requestFullscreen&&w.requestFullscreen();else document.exitFullscreen&&document.exitFullscreen();}
 function mapSearch(s){mapS.q=(s||'').trim();applySearch(true);}
