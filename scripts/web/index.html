@@ -710,12 +710,28 @@ function renderImport(){
     <div id="ccmsg" style="margin-top:10px"></div>
   </div>
   <div class="panel">
-    <h3>② 拖入导出文件(Claude / ChatGPT)</h3>
-    <ol style="margin:0 0 12px;padding-left:1.2rem;line-height:1.9;font-size:14px">
-      <li>Claude:<b>Settings → Privacy → Export data</b>;ChatGPT:<b>Settings → Data controls → Export data</b>。收到邮件后下载并解压。</li>
-      <li>可直接拖<b>整个导出 zip</b>(自动识别里面的 <code>memories.json</code> / <code>conversations.json</code>),也可拖单个 json。</li>
-    </ol>
-    <div id="drop" style="border:2px dashed var(--bd);border-radius:12px;padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s">把<b>导出 zip</b> 或 <b>memories.json / conversations.json</b> 拖到这里,或<b>点击选择文件</b></div>
+    <h3>② 拖入 Claude / ChatGPT 的导出</h3>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:12px">导出是<b>官方账号级</b>的,按下面两步拿到 zip,整包拖进来即可(自动识别里面的文件)。</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:12px">
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px">
+        <div style="font-weight:600;font-size:13.5px;margin-bottom:6px">🟣 从 Claude 导出</div>
+        <ol style="margin:0;padding-left:1.1rem;line-height:1.85;font-size:12.5px;color:var(--tx)">
+          <li>网页 / 桌面端 → 左下头像 → <b>Settings</b></li>
+          <li><b>Privacy → Export data</b> → 确认</li>
+          <li>等邮件(几分钟~几十分钟)→ 下载 zip</li>
+        </ol>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px">
+        <div style="font-weight:600;font-size:13.5px;margin-bottom:6px">🟢 从 ChatGPT 导出</div>
+        <ol style="margin:0;padding-left:1.1rem;line-height:1.85;font-size:12.5px;color:var(--tx)">
+          <li>Settings → <b>Data controls</b></li>
+          <li><b>Export data</b> → Confirm export</li>
+          <li>等邮件 → 下载 zip</li>
+        </ol>
+      </div>
+    </div>
+    <div style="font-size:12.5px;color:var(--mut);margin-bottom:12px;line-height:1.7">📦 拿到 zip <b>不用解压</b>,直接拖进来。里面两种文件都能认:<br><code>memories.json</code> = 已成型的云端记忆(直接进候选);<code>conversations.json</code> = 原始对话(AI 帮你提纯成候选)。</div>
+    <div id="drop" style="border:2px dashed var(--bd);border-radius:12px;padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s">把<b>导出 zip</b> 或单个 <b>memories.json / conversations.json</b> 拖到这里,或<b>点击选择文件</b></div>
     <input id="mfile" type="file" accept=".json,.zip" style="display:none">
     <div id="imsg" style="margin-top:12px"></div>
   </div>`;
