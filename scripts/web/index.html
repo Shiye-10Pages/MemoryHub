@@ -608,14 +608,20 @@ function retroReport(d){
 // ---- 导入(Claude 记忆一键导入)----
 function renderImport(){
   const v=$('#view-import');
-  v.innerHTML=`<div class="head"><h1>导入 · Claude 记忆</h1><p>把 Claude 导出的 <code>memories.json</code> 拖进来,拆成候选、过四道保真闸,落到「待确认」等你逐条批准。AI 推断的记忆<b>绝不自动入库</b>。</p></div>
+  v.innerHTML=`<div class="head"><h1>导入记忆</h1><p>把各家 AI 的记忆 / 对话喂进来,拆成候选、过四道保真闸,落到「待确认」等你逐条批准。AI 推断的记忆<b>绝不自动入库</b>。</p></div>
   <div class="panel">
+    <h3>① 本机 Claude Code(免导出)</h3>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">直接扫描本机 <code>~/.claude/projects</code> 里的 Claude Code 对话,不用导出任何东西。</div>
+    <button class="btn pri" onclick="doScanCC()">🔍 扫描本机 Claude Code 对话</button>
+    <div id="ccmsg" style="margin-top:10px"></div>
+  </div>
+  <div class="panel">
+    <h3>② 拖入导出文件(Claude / ChatGPT)</h3>
     <ol style="margin:0 0 12px;padding-left:1.2rem;line-height:1.9;font-size:14px">
-      <li>打开 Claude → <b>Settings → Privacy → Export data</b>,收到邮件后下载并解压 zip。</li>
-      <li>找到里面的 <code>memories.json</code>(也可直接拖整包 <code>.zip</code>,系统自动取出)。</li>
-      <li>拖到下面方框,或点击选择文件。</li>
+      <li>Claude:<b>Settings → Privacy → Export data</b>;ChatGPT:<b>Settings → Data controls → Export data</b>。收到邮件后下载并解压。</li>
+      <li>可直接拖<b>整个导出 zip</b>(自动识别里面的 <code>memories.json</code> / <code>conversations.json</code>),也可拖单个 json。</li>
     </ol>
-    <div id="drop" style="border:2px dashed var(--bd);border-radius:12px;padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s">把 <b>memories.json</b> 或导出 <b>.zip</b> 拖到这里,或<b>点击选择文件</b></div>
+    <div id="drop" style="border:2px dashed var(--bd);border-radius:12px;padding:34px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s">把<b>导出 zip</b> 或 <b>memories.json / conversations.json</b> 拖到这里,或<b>点击选择文件</b></div>
     <input id="mfile" type="file" accept=".json,.zip" style="display:none">
     <div id="imsg" style="margin-top:12px"></div>
   </div>`;
@@ -625,6 +631,15 @@ function renderImport(){
   drop.ondragleave=()=>{drop.style.borderColor='var(--bd)';drop.style.background='';};
   drop.ondrop=e=>{e.preventDefault();drop.style.borderColor='var(--bd)';drop.style.background='';if(e.dataTransfer.files[0])doImport(e.dataTransfer.files[0]);};
   inp.onchange=()=>{if(inp.files[0])doImport(inp.files[0]);};
+}
+async function doScanCC(){
+  const msg=$('#ccmsg');msg.innerHTML='<div class="note">正在扫描本机 Claude Code 对话并提纯…(首次可能要几分钟,别关页面)</div>';
+  try{
+    const r=await fetch('/api/import/claude-code',{method:'POST',headers:{'X-MemoryHub':'1'}});
+    const d=await r.json();
+    if(!r.ok||!d.ok){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(d.message||('HTTP '+r.status))}${d.need_key?` <a href="#" onclick="show('settings');return false">去设置填 key →</a>`:''}</div>`;return;}
+    msg.innerHTML=`<div class="note" style="background:var(--ok-soft);color:var(--ok)">✓ ${esc(d.message)}${d.queued?` <a href="#" onclick="show('queue');return false">去待确认队列 →</a>`:''}</div>`;
+  }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ 扫描失败:${esc(e.message)}</div>`;}
 }
 async function doImport(file){
   const msg=$('#imsg');

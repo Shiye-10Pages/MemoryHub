@@ -1033,10 +1033,35 @@ def api_update_check():
     return jsonify(res)
 
 
+def _detect_json_kind(path):
+    """判断一个 json 是哪种源:memories / claude-web / chatgpt / unknown。"""
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return "unknown"
+    if isinstance(data, dict) and any(k in data for k in ("conversations_memory", "project_memories", "memory_files")):
+        return "memories"
+    convs = data.get("conversations") if isinstance(data, dict) else data
+    if isinstance(convs, list) and convs and isinstance(convs[0], dict):
+        if "mapping" in convs[0]:
+            return "chatgpt"
+        if "chat_messages" in convs[0]:
+            return "claude-web"
+    return "unknown"
+
+
+_CONNECTOR = {
+    "memories": ("ingest_claude_memories.py", "Claude 云端记忆"),
+    "claude-web": ("ingest_claude_web.py", "claude.ai 网页对话"),
+    "chatgpt": ("ingest_chatgpt.py", "ChatGPT 对话"),
+}
+
+
 @app.route("/api/import/claude-memory", methods=["POST"])
-def api_import_claude_memory():
+@app.route("/api/import", methods=["POST"])
+def api_import():
     require_write()
-    if not _alibaba_key():                                 # B1:缺 key 预检 → 可操作提示,不跑 gate(否则会空跑)
+    if not _alibaba_key():                                 # B1:缺 key 预检 → 可操作提示,不空跑 gate
         return jsonify({"ok": False, "need_key": True,
                         "message": "导入需要先在「设置」里选模型 provider + 填 API Key(用于把记忆向量化),保存后即可直接导入。"}), 400
     f = request.files.get("file")
@@ -1044,13 +1069,13 @@ def api_import_claude_memory():
         return jsonify({"ok": False, "message": "没有收到文件。"}), 400
     lower = f.filename.lower()
     if not (lower.endswith(".json") or lower.endswith(".zip")):
-        return jsonify({"ok": False, "message": "只接受 memories.json 或包含它的 .zip。"}), 400
+        return jsonify({"ok": False, "message": "只接受 .json(memories.json / conversations.json)或整包 .zip。"}), 400
     raw = f.read()
-    if len(raw) > 60 * 1024 * 1024:
-        return jsonify({"ok": False, "message": "文件过大(>60MB)。"}), 400
-    dest_dir = os.path.join(HUB, "imports", "claude-web", time.strftime("%Y%m%d-%H%M%S"))
-    os.makedirs(dest_dir, exist_ok=True)
-    mem_path = os.path.join(dest_dir, "memories.json")
+    if len(raw) > 200 * 1024 * 1024:
+        return jsonify({"ok": False, "message": "文件过大(>200MB)。"}), 400
+    dest = os.path.join(HUB, "imports", "_upload", time.strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(dest, exist_ok=True)
+    paths = []
     if lower.endswith(".zip"):
         import io
         import zipfile
@@ -1058,38 +1083,76 @@ def api_import_claude_memory():
             zf = zipfile.ZipFile(io.BytesIO(raw))
         except Exception:
             return jsonify({"ok": False, "message": "无法读取 zip。"}), 400
-        member = next((n for n in zf.namelist()
-                       if os.path.basename(n) == "memories.json"
-                       and ".." not in n and not n.startswith("/")), None)  # 防 zip-slip:只按名取
-        if not member:
-            return jsonify({"ok": False, "message": "zip 里没找到 memories.json。"}), 400
-        with zf.open(member) as src, open(mem_path, "wb") as dst:
-            dst.write(src.read(60 * 1024 * 1024))
+        for want in ("memories.json", "conversations.json"):   # 只按 basename 取,防 zip-slip
+            m = next((n for n in zf.namelist()
+                      if os.path.basename(n) == want and ".." not in n and not n.startswith("/")), None)
+            if m:
+                p = os.path.join(dest, want)
+                with zf.open(m) as s, open(p, "wb") as d:
+                    d.write(s.read(200 * 1024 * 1024))
+                paths.append(p)
+        if not paths:
+            return jsonify({"ok": False, "message": "zip 里没找到 memories.json 或 conversations.json。"}), 400
     else:
-        try:
-            json.loads(raw.decode("utf-8"))
-        except Exception:
-            return jsonify({"ok": False, "message": "这不是合法的 JSON 文件。"}), 400
-        with open(mem_path, "wb") as dst:
-            dst.write(raw)
-    py = sys.executable
+        p = os.path.join(dest, "upload.json")
+        with open(p, "wb") as d:
+            d.write(raw)
+        paths.append(p)
+    py, routed, unknown = sys.executable, [], []
     try:
-        subprocess.run([py, os.path.join(HUB, "scripts", "ingest_claude_memories.py"),
-                        "--file", mem_path], cwd=HUB, capture_output=True, text=True, timeout=180)
+        for p in paths:
+            kind = _detect_json_kind(p)
+            if kind not in _CONNECTOR:
+                unknown.append(os.path.basename(p))
+                continue
+            script, label = _CONNECTOR[kind]
+            subprocess.run([py, os.path.join(HUB, "scripts", script), "--file", p],
+                           cwd=HUB, capture_output=True, text=True, timeout=600)
+            routed.append(label)
+        if not routed:
+            return jsonify({"ok": False,
+                            "message": f"没认出可导入的记忆源(收到:{', '.join(unknown) or '空'})。请确认是 Claude / ChatGPT 官方导出。"}), 400
         gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
-                            cwd=HUB, capture_output=True, text=True, timeout=600)
+                            cwd=HUB, capture_output=True, text=True, timeout=1800)
     except Exception as e:
         return jsonify({"ok": False, "message": f"处理失败:{e}"}), 500
     c = db()
     qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
     c.close()
     tail = (gr.stdout or gr.stderr or "").strip().splitlines()
+    src = "、".join(routed)
     if qn == 0:
         return jsonify({"ok": True, "queued": 0,
-                        "message": "导入完成,但这个文件里没有可导入的新记忆(可能之前已导过)。",
+                        "message": f"已处理【{src}】,但没有可导入的新记忆(可能之前已导过)。",
                         "detail": tail[-1] if tail else ""})
     return jsonify({"ok": True, "queued": qn,
-                    "message": f"导入完成,{qn} 条候选已进入「待确认队列」,去逐条批准 / 丢弃。",
+                    "message": f"已从【{src}】导入,{qn} 条候选进入「待确认队列」,去逐条批准 / 丢弃。",
+                    "detail": tail[-1] if tail else ""})
+
+
+@app.route("/api/import/claude-code", methods=["POST"])
+def api_import_claude_code():
+    require_write()
+    if not _alibaba_key():
+        return jsonify({"ok": False, "need_key": True,
+                        "message": "扫描需要先在「设置」里填 API Key(用于把记忆向量化)。"}), 400
+    py = sys.executable
+    try:
+        subprocess.run([py, os.path.join(HUB, "scripts", "ingest.py")],
+                       cwd=HUB, capture_output=True, text=True, timeout=600)
+        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
+                       cwd=HUB, capture_output=True, text=True, timeout=1800)
+        gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
+                            cwd=HUB, capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
+    c = db()
+    qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+    raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='claude-code'").fetchone()[0]
+    c.close()
+    tail = (gr.stdout or gr.stderr or "").strip().splitlines()
+    return jsonify({"ok": True, "queued": qn,
+                    "message": f"已扫描本机 Claude Code 对话(累计 {raw_n} 条原始记录),「待确认队列」现有 {qn} 条。",
                     "detail": tail[-1] if tail else ""})
 
 
