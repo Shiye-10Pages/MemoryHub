@@ -188,15 +188,40 @@ function donut(data,colorFn,topN){
   const leg=sl.map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:2.5px 0"><span style="width:10px;height:10px;border-radius:3px;background:${col(d,i)};flex:none"></span><span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.label)}</span><span style="color:var(--mut);font:12px ui-monospace,monospace">${fmt(d.n)}</span><span style="color:var(--faint);width:34px;text-align:right;font-size:11px">${(d.n/total*100).toFixed(0)}%</span></div>`).join('');
   return `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div>${svg}</div><div style="flex:1;min-width:150px;max-height:200px;overflow:auto">${leg}</div></div>`;
 }
+function onboardStep(done,n,title,desc,btn,action){
+  return `<li style="display:flex;gap:11px;align-items:flex-start;padding:8px 0;border-top:.5px solid var(--bd)${done?';opacity:.6':''}">
+    <span style="flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;background:${done?'var(--ok)':'var(--ac)'};color:#fff">${done?'✓':n}</span>
+    <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px">${title}${done?' <span style="color:var(--ok);font-weight:400;font-size:12px">· 已完成</span>':''}</div>
+      <div style="color:var(--mut);font-size:12.5px;margin-top:2px;line-height:1.5">${desc}</div></div>
+    ${done?'':`<button class="btn pri" style="height:30px;padding:0 13px;flex:none" onclick="${action}">${btn} →</button>`}
+  </li>`;
+}
+function onboardPanel(s1,s2,s3){
+  const done=[s1,s2,s3].filter(Boolean).length;
+  return `<div class="panel" style="border-left:3px solid var(--ac)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">👋 上手引导 · 已完成 ${done}/3</h3>
+      <a href="#" onclick="onboardDismiss();return false" style="font-size:12px;color:var(--mut)">不再显示</a></div>
+    <div style="color:var(--mut);font-size:12.5px;margin:4px 0 6px">三步走完就能让任意 AI 随时召回你的记忆。做完自动消失。</div>
+    <ol style="margin:0;padding:0;list-style:none">
+      ${onboardStep(s1,1,'配 API Key','选模型 provider、填 key(把记忆向量化用;默认阿里云百炼,OpenAI / DeepSeek 等也行)。不填也能浏览 + 关键词检索。','去设置',"show('settings')")}
+      ${onboardStep(s2,2,'导入记忆','拖入 Claude 导出的 memories.json,或一键扫描本机 Claude Code 对话。','去导入',"show('import')")}
+      ${onboardStep(s3,3,'批准待确认','AI 只是「提名」,你在待确认里逐条批准,才真正入库、参与召回。','去待确认',"show('queue')")}
+    </ol></div>`;
+}
+function onboardDismiss(){try{localStorage.setItem('mh_onboard_hide','1');}catch(e){}renderDash();}
 async function renderDash(){
-  const s=await api('/api/stats');
+  const [s,cfg]=await Promise.all([api('/api/stats'),api('/api/config').catch(()=>({}))]);
   $('#foot').innerHTML=`本地记忆面板<br>记忆 ${s.memory_item} · 原始 ${s.raw_event.toLocaleString()}`;
   const q=s.queue||0;['#qpip','#memq'].forEach(id=>{const el=$(id);if(el){el.style.display=q?'inline-block':'none';el.textContent=q;}});
   const ng=s.nightly||{};
-  const first=(s.memory_item===0 && (s.queue||0)===0);
+  const _cf=(s.by_status||[]).find(x=>x.status==='已确认');
+  const oS1=!!cfg.has_key, oS2=(s.memory_item>0||(s.queue||0)>0||(s.raw_event||0)>0), oS3=!!(_cf&&_cf.n>0);
+  let _hide=false;try{_hide=localStorage.getItem('mh_onboard_hide')==='1';}catch(e){}
+  const showOnboard=!(oS1&&oS2&&oS3)&&!_hide;
   $('#view-dash').innerHTML=`
    <div class="head"><h1>仪表盘</h1><p>一眼看全局:记忆库规模、构成、待办与昨晚自动任务。</p></div>
-   ${first?`<div class="panel" style="border-left:3px solid var(--ac)"><h3>👋 第一次用?三步开始</h3><ol style="margin:0;padding-left:1.2rem;line-height:1.9;font-size:14px"><li>在 <b>设置</b> 里选模型 provider、填 <code>API Key</code>(把记忆向量化用;默认阿里云,OpenAI/DeepSeek 等也行)。</li><li>去 <b>导入</b>,拖入 Claude 导出的 <code>memories.json</code>。</li><li>回 <b>待确认</b>,逐条批准 / 丢弃。</li></ol></div>`:''}
+   ${showOnboard?onboardPanel(oS1,oS2,oS3):''}
    <div class="metrics">
      <div class="metric"><div class="ico"><svg style="width:30px;height:30px"><use href="#mh"/></svg></div><div class="v">${s.memory_item}</div><div class="l">现行记忆</div></div>
      <div class="metric"><div class="ico">📥</div><div class="v">${(s.raw_event/1000).toFixed(1)}k</div><div class="l">原始事件</div></div>
