@@ -388,7 +388,7 @@ async function renderQueue(){
       +`</div>`;
   }
   const items=d.items.filter(x=>!handled.has(x.qid));
-  if(!items.length){v.innerHTML=h+'<div class="empty">队列已清空或仅余已预审项 ✓</div>';return;}
+  if(!items.length){v.innerHTML=h+`<div class="empty" style="padding:30px 16px">🎉 没有待你确认的记忆<div style="margin-top:8px;font-size:13px;color:var(--mut);line-height:1.6">导入 Claude 记忆后,AI 推断出的条目会自动汇到这里,等你逐条批准入库。</div><button class="btn pri" style="margin-top:14px" onclick="show('import')">去导入记忆 →</button></div>`;return;}
   h+=`<div class="sec-t" style="margin-top:18px">逐条复核(AI 建议确认 + 矛盾裁决 · ${items.length} 条)</div>`;
   h+='<div class="list">'+items.map(x=>{
     if(x.reason==='contradiction'){return `<div class="mcard" style="--cl:#d9534f;cursor:default">
