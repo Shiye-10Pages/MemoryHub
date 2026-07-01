@@ -163,7 +163,7 @@ async function renderDash(){
   const first=(s.memory_item===0 && (s.queue||0)===0);
   $('#view-dash').innerHTML=`
    <div class="head"><h1>仪表盘</h1><p>一眼看全局:记忆库规模、构成、待办与昨晚自动任务。</p></div>
-   ${first?`<div class="panel" style="border-left:3px solid var(--ac)"><h3>👋 第一次用?三步开始</h3><ol style="margin:0;padding-left:1.2rem;line-height:1.9;font-size:14px"><li>在 <b>设置</b> 里填 <code>ALIBABA_KEY</code>(把记忆向量化用)。</li><li>去 <b>导入</b>,拖入 Claude 导出的 <code>memories.json</code>。</li><li>回 <b>待确认</b>,逐条批准 / 丢弃。</li></ol></div>`:''}
+   ${first?`<div class="panel" style="border-left:3px solid var(--ac)"><h3>👋 第一次用?三步开始</h3><ol style="margin:0;padding-left:1.2rem;line-height:1.9;font-size:14px"><li>在 <b>设置</b> 里选模型 provider、填 <code>API Key</code>(把记忆向量化用;默认阿里云,OpenAI/DeepSeek 等也行)。</li><li>去 <b>导入</b>,拖入 Claude 导出的 <code>memories.json</code>。</li><li>回 <b>待确认</b>,逐条批准 / 丢弃。</li></ol></div>`:''}
    <div class="metrics">
      <div class="metric"><div class="ico">🧠</div><div class="v">${s.memory_item}</div><div class="l">现行记忆</div></div>
      <div class="metric"><div class="ico">📥</div><div class="v">${(s.raw_event/1000).toFixed(1)}k</div><div class="l">原始事件</div></div>
@@ -652,9 +652,41 @@ function _block(title,text){
       <button class="btn" style="position:absolute;top:6px;right:6px;height:28px;padding:0 10px" onclick="_copy(document.getElementById('${id}').textContent,this)">复制</button>
     </div></div>`;
 }
+async function loadCfg(){
+  try{const c=await api('/api/config');
+    $('#cfgprov').innerHTML=Object.keys(c.presets).map(p=>`<option value="${p}"${p===c.provider?' selected':''}>${p}</option>`).join('');
+    $('#cfgnow').innerHTML=`当前:provider=<b>${esc(c.provider)}</b> · 对话 ${esc(c.chat_model)} · 嵌入 ${esc(c.embed_model||'—')}(${c.embed_dim}维) · key ${c.has_key?'已配 ✓':'<span style="color:var(--dng)">未配</span>'}`;
+  }catch(e){$('#cfgnow').textContent='读取配置失败';}
+}
+async function saveCfg(){
+  const msg=$('#cfgmsg');msg.innerHTML='<div class="note">保存中…</div>';
+  try{const d=await post('/api/config',{provider:$('#cfgprov').value,api_key:$('#cfgkey').value});
+    if(d.ok){msg.innerHTML=`<div class="note" style="background:var(--ok-soft);color:var(--ok)">✓ ${esc(d.message)} 建议点「测试连通」确认。</div>`;$('#cfgkey').value='';loadCfg();}
+    else msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(d.message||'保存失败')}</div>`;
+  }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(e.message)}</div>`;}
+}
+async function testCfg(){
+  const msg=$('#cfgmsg');msg.innerHTML='<div class="note">测试中…(调一次嵌入 + 一次对话,约几秒)</div>';
+  try{const d=await post('/api/provider-test',{});
+    const st=d.ok?'background:var(--ok-soft);color:var(--ok)':'background:var(--dng-soft);color:var(--dng)';
+    msg.innerHTML=`<div class="note" style="${st}">${d.ok?'✓':'✗'} ${esc(d.detail)}</div>`;
+  }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(e.message)}</div>`;}
+}
 async function renderSettings(){
   const v=$('#view-settings');
   v.innerHTML=`<div class="head"><h1>设置</h1></div>
+  <div class="panel">
+    <h3>AI 模型 · API Key</h3>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">用哪家就填哪家的 key(默认阿里云百炼;OpenAI / DeepSeek / 智谱 等也行)。不填只能浏览 + 关键词检索。</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <select id="cfgprov" style="height:38px;border:1px solid var(--bd);border-radius:8px;padding:0 8px;background:var(--surf);color:var(--tx)"></select>
+      <input id="cfgkey" type="password" placeholder="粘贴 API Key" autocomplete="off" style="flex:1;min-width:200px;height:38px;border:1px solid var(--bd);border-radius:8px;padding:0 12px;background:var(--surf);color:var(--tx)">
+      <button class="btn pri" onclick="saveCfg()">保存</button>
+      <button class="btn" onclick="testCfg()">测试连通</button>
+    </div>
+    <div id="cfgnow" style="font-size:12.5px;color:var(--mut);margin-top:8px"></div>
+    <div id="cfgmsg" style="margin-top:8px"></div>
+  </div>
   <div class="panel" style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
     <div style="flex:1;min-width:220px">
       <div style="font-size:24px;font-weight:700;letter-spacing:.5px">十页 AI</div>
@@ -674,6 +706,7 @@ async function renderSettings(){
     <div style="color:var(--mut);font-size:13px;margin-bottom:8px">复制即用:① 给 Claude 桌面端装 MCP;② 或命令行一键装;③ 把「主动读取」指令贴进 Claude Project / ChatGPT 自定义指令。</div>
     <div id="conn"><div class="empty">加载中…</div></div>
   </div>`;
+  loadCfg();
   try{const u=await api('/api/update-check');
     $('#ver').textContent=u.current||'?';
     if(u.update_available){$('#upd').innerHTML=` · <a href="${esc(u.url||'#')}" target="_blank" rel="noopener" style="color:var(--dng)">发现新版 ${esc(u.latest)} → 去更新</a>`;const p=$('#upip');if(p)p.style.display='inline-block';}

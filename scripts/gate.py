@@ -213,14 +213,14 @@ def main():
 
     con = sqlite3.connect(DB, timeout=30.0)
     # 库内现行条目:向量(单位化)+ claim + valid_from,做近邻底座;新写入的也追加进来(批内互检)
-    cap = DIM
-    E = np.zeros((con.execute("SELECT COUNT(*) FROM memory_embedding").fetchone()[0] + len(groups), cap),
+    cap = len(vecs[0]) if vecs else DIM   # 用实际嵌入维度,兼容不同 provider
+    E = np.zeros((con.execute("SELECT COUNT(*) FROM memory_embedding WHERE dim=?", (cap,)).fetchone()[0] + len(groups), cap),
                  dtype=np.float32)
     meta = []   # 与 E 行对齐:{id, claim, valid_from}
     n = 0
     for r in con.execute("SELECT mi.id, mi.claim, mi.valid_from, me.dim, me.vec "
                          "FROM memory_item mi JOIN memory_embedding me ON me.memory_item_id=mi.id "
-                         "WHERE mi.valid_until IS NULL"):
+                         "WHERE mi.valid_until IS NULL AND me.dim = ?", (cap,)):
         E[n] = unit(struct.unpack(f"<{r[3]}f", r[4]))
         meta.append({"id": r[0], "claim": r[1], "valid_from": r[2] or ""})
         n += 1

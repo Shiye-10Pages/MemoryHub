@@ -939,17 +939,27 @@ GITHUB_REPO = os.environ.get("MEMORYHUB_REPO", "Shiye-10Pages/MemoryHub")
 
 
 def _alibaba_key():
-    """现读 .env,避免用户刚填 key 还没重启面板。"""
-    k = os.environ.get("ALIBABA_KEY", "").strip()
-    if k:
-        return k
-    try:
-        for line in open(os.path.join(HUB, ".env"), encoding="utf-8"):
-            if line.strip().startswith("ALIBABA_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except Exception:
-        pass
-    return ""
+    """当前 provider 的可用密钥(嵌入优先);用于导入前预检。现读 .env,填完即时生效。"""
+    import provider
+    c = provider.resolve()
+    return c["embed_key"] or c["key"]
+
+
+def _set_env(updates):
+    """把 updates 写回 .env(存在的键改值,不存在的追加),保留其它行与注释。"""
+    p = os.path.join(HUB, ".env")
+    lines = open(p, encoding="utf-8").read().splitlines() if os.path.exists(p) else []
+    keys, out, seen = set(updates), [], set()
+    for line in lines:
+        k = line.split("=", 1)[0].strip() if ("=" in line and not line.strip().startswith("#")) else None
+        if k in keys:
+            out.append(f"{k}={updates[k]}")
+            seen.add(k)
+        else:
+            out.append(line)
+    for k in keys - seen:
+        out.append(f"{k}={updates[k]}")
+    open(p, "w", encoding="utf-8").write("\n".join(out) + "\n")
 
 
 def _vgt(a, b):
@@ -1028,7 +1038,7 @@ def api_import_claude_memory():
     require_write()
     if not _alibaba_key():                                 # B1:缺 key 预检 → 可操作提示,不跑 gate(否则会空跑)
         return jsonify({"ok": False, "need_key": True,
-                        "message": "导入需要先在设置里填 ALIBABA_KEY(用于把记忆向量化),填好后重开面板再导入。"}), 400
+                        "message": "导入需要先在「设置」里选模型 provider + 填 API Key(用于把记忆向量化),保存后即可直接导入。"}), 400
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"ok": False, "message": "没有收到文件。"}), 400
@@ -1081,6 +1091,50 @@ def api_import_claude_memory():
     return jsonify({"ok": True, "queued": qn,
                     "message": f"导入完成,{qn} 条候选已进入「待确认队列」,去逐条批准 / 丢弃。",
                     "detail": tail[-1] if tail else ""})
+
+
+@app.route("/api/config")
+def api_config():
+    import provider
+    c = provider.resolve()
+    return jsonify({
+        "provider": c["provider"], "has_key": bool(c["key"]),
+        "chat_model": c["chat_model"], "embed_model": c["embed_model"],
+        "embed_dim": c["embed_dim"], "base_url": c["base"],
+        "presets": {k: {"base": v[0], "chat": v[1], "embed": v[2], "dim": v[3], "format": v[4]}
+                    for k, v in provider.PRESETS.items()},
+    })
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config_save():
+    require_write()
+    a = request.get_json(force=True, silent=True) or {}
+    updates = {}
+    if (a.get("provider") or "").strip():
+        updates["LLM_PROVIDER"] = a["provider"].strip()
+    if a.get("api_key") is not None:
+        updates["LLM_API_KEY"] = str(a["api_key"]).strip()
+    for kj, ke in (("chat_model", "LLM_MODEL"), ("base_url", "LLM_BASE_URL"),
+                   ("embed_model", "EMBED_MODEL"), ("embed_api_key", "EMBED_API_KEY"),
+                   ("embed_base_url", "EMBED_BASE_URL"), ("embed_dim", "EMBED_DIM")):
+        if a.get(kj) is not None:
+            updates[ke] = str(a[kj]).strip()
+    if not updates:
+        return jsonify({"ok": False, "message": "没有要保存的字段。"}), 400
+    try:
+        _set_env(updates)
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"写 .env 失败:{e}"}), 500
+    return jsonify({"ok": True, "message": "已保存到 .env,即时生效(无需重启)。"})
+
+
+@app.route("/api/provider-test", methods=["POST"])
+def api_provider_test():
+    require_write()
+    import provider
+    ok, detail = provider.test_connectivity()
+    return jsonify({"ok": ok, "detail": detail})
 
 
 @app.route("/api/brand-qr")

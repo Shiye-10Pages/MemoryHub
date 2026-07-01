@@ -23,6 +23,7 @@ STAGING = os.path.join(HUB, "staging")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import config            # noqa: E402
 from memory_prompt import build_prompt  # noqa: E402
+import provider                      # noqa: E402  LLM/嵌入 provider 抽象
 
 
 def arg(name, default=None):
@@ -72,18 +73,9 @@ def windows(text, size):
 
 
 def call_qwen(model, prompt):
-    if not config.ALIBABA_KEY:
-        raise RuntimeError("缺少 ALIBABA_KEY: 请在 MemoryHub/.env 中配置")
-    r = requests.post(config.ALIBABA_ENDPOINT,
-                      headers={"Authorization": f"Bearer {config.ALIBABA_KEY}",
-                               "Content-Type": "application/json"},
-                      json={"model": model,
-                            "input": {"messages": [{"role": "user", "content": prompt}]},
-                            "parameters": {"temperature": 0.1, "result_format": "message"}},
-                      timeout=180)
-    if r.status_code != 200:
-        raise Exception(f"{r.status_code}: {r.text[:200]}")
-    return r.json()["output"]["choices"][0]["message"]["content"]
+    # 兼容旧签名:统一路由到配置的 provider(DashScope 原生 / OpenAI 兼容)。
+    # 传入的 model 多为旧 qwen 名,忽略之,用 provider 配置的对话模型。
+    return provider.chat(prompt)
 
 
 def parse(content):
@@ -101,7 +93,7 @@ def main():
     limit = int(arg("--limit")) if "--limit" in sys.argv else None  # 默认不限:来源闸内全部
     conv = arg("--conv")
     project = arg("--project")
-    model = arg("--model", "qwen3-max")
+    model = arg("--model", provider.resolve()["chat_model"])
     win = int(arg("--window", "8000"))
     force = "--force" in sys.argv
     os.makedirs(STAGING, exist_ok=True)

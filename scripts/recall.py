@@ -49,7 +49,7 @@ def recall(query, topk=8):
     rows = con.execute(
         "SELECT mi.id,mi.type,mi.claim,mi.evidence,mi.confidence,mi.sources,me.dim,me.vec,mi.context "
         "FROM memory_item mi JOIN memory_embedding me ON me.memory_item_id=mi.id "
-        "WHERE mi.valid_until IS NULL").fetchall()
+        "WHERE mi.valid_until IS NULL AND me.dim = ?", (len(qv),)).fetchall()
     vec_rank = sorted(
         ((cos(qv, struct.unpack(f"<{r[6]}f", r[7])), r) for r in rows),
         key=lambda x: -x[0])
