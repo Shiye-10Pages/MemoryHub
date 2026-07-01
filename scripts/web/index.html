@@ -119,9 +119,9 @@ input[type=text]{flex:1;min-width:200px}
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand"><span class="dot">🧠</span> AI 记忆助手</div>
+    <div class="brand"><img src="/api/icon" alt="MH" style="width:22px;height:22px;border-radius:5px;vertical-align:-5px;margin-right:3px"> AI 记忆助手</div>
     <button class="navi on" data-v="dash"><span class="ico">📊</span>仪表盘</button>
-    <button class="navi grp" id="memgrp"><span class="ico">🧠</span>记忆<span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span class="pip" id="memq" style="display:none;margin-left:0"></span><span class="chev">▸</span></span></button>
+    <button class="navi grp" id="memgrp"><span class="ico"><img src="/api/icon" alt="" style="width:16px;height:16px;border-radius:4px;vertical-align:-3px"></span>记忆<span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span class="pip" id="memq" style="display:none;margin-left:0"></span><span class="chev">▸</span></span></button>
     <div class="subnav" id="memsub" style="display:none">
       <button class="navi sub" data-v="browse"><span class="ico">🗂️</span>浏览</button>
       <button class="navi sub" data-v="recall"><span class="ico">💡</span>召回</button>
@@ -182,7 +182,7 @@ async function renderDash(){
    <div class="head"><h1>仪表盘</h1><p>一眼看全局:记忆库规模、构成、待办与昨晚自动任务。</p></div>
    ${first?`<div class="panel" style="border-left:3px solid var(--ac)"><h3>👋 第一次用?三步开始</h3><ol style="margin:0;padding-left:1.2rem;line-height:1.9;font-size:14px"><li>在 <b>设置</b> 里选模型 provider、填 <code>API Key</code>(把记忆向量化用;默认阿里云,OpenAI/DeepSeek 等也行)。</li><li>去 <b>导入</b>,拖入 Claude 导出的 <code>memories.json</code>。</li><li>回 <b>待确认</b>,逐条批准 / 丢弃。</li></ol></div>`:''}
    <div class="metrics">
-     <div class="metric"><div class="ico">🧠</div><div class="v">${s.memory_item}</div><div class="l">现行记忆</div></div>
+     <div class="metric"><div class="ico"><img src="/api/icon" alt="" style="width:30px;height:30px;border-radius:7px"></div><div class="v">${s.memory_item}</div><div class="l">现行记忆</div></div>
      <div class="metric"><div class="ico">📥</div><div class="v">${(s.raw_event/1000).toFixed(1)}k</div><div class="l">原始事件</div></div>
      <div class="metric"><div class="ico">⏳</div><div class="v">${q}</div><div class="l">待确认</div></div>
      <div class="metric"><div class="ico">🌙</div><div class="v" style="font-size:16px;margin-top:14px">${esc(ng.state||'?')}</div><div class="l">夜间任务</div></div>
@@ -556,7 +556,7 @@ async function renderHealth(){
   const lowest=(d.lowest||[]).map(x=>`<div class="mcard" style="--cl:${tcolor(x.type)};padding:10px 12px" onclick="openD('${x.id}')"><div class="top">${chip(x.type)}${cf(x.confidence)}</div><div class="claim" style="font-size:13.5px">${esc(x.claim)}</div></div>`).join('');
   $('#view-health').innerHTML=`<div class="head"><h1>体检</h1><p>把后台的置信/状态/矛盾亮到前台:哪些低置信、哪些还待你确认、有没有被取代的矛盾。点条目可抽查。</p></div>
    <div class="metrics">
-     <div class="metric"><div class="ico">🧠</div><div class="v">${d.current}</div><div class="l">现行记忆</div></div>
+     <div class="metric"><div class="ico"><img src="/api/icon" alt="" style="width:30px;height:30px;border-radius:7px"></div><div class="v">${d.current}</div><div class="l">现行记忆</div></div>
      <div class="metric"><div class="ico">⚠️</div><div class="v">${d.low_conf}</div><div class="l">低置信(&lt;0.45)</div></div>
      <div class="metric"><div class="ico">🔁</div><div class="v">${d.superseded}</div><div class="l">已失效/被取代</div></div>
      <div class="metric"><div class="ico">⏰</div><div class="v">${d.stale}</div><div class="l">到期待再审</div></div>
