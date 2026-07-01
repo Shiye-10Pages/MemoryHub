@@ -22,6 +22,13 @@ body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,"Pi
 .navi.on{background:var(--ac-soft);color:var(--ac);font-weight:500}
 .navi .ico{width:18px;text-align:center}
 .navi .pip{margin-left:auto;background:var(--dng);color:#fff;font-size:11px;border-radius:10px;padding:1px 7px}
+.navi.sub{padding-left:32px;font-size:13.5px}
+.subnav{display:flex;flex-direction:column;gap:4px}
+.navi.grp .chev{transition:.15s;font-size:11px;color:var(--faint)}
+.navi.grp.open .chev{transform:rotate(90deg)}
+.subtabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--bd)}
+.stab{border:none;background:transparent;color:var(--mut);padding:7px 14px;cursor:pointer;font-size:13.5px}
+.stab.on{color:var(--ac);font-weight:500;box-shadow:inset 0 -2px 0 var(--ac)}
 .side .foot{margin-top:auto;font-size:11px;color:var(--faint);padding:10px 8px;line-height:1.6;border-top:1px solid var(--bd)}
 /* 主区 */
 main{padding:26px 36px 60px;max-width:1200px;margin:0 auto;width:100%}
@@ -112,14 +119,15 @@ input[type=text]{flex:1;min-width:200px}
   <aside class="side">
     <div class="brand"><span class="dot">🧠</span> MemoryHub</div>
     <button class="navi on" data-v="dash"><span class="ico">📊</span>仪表盘</button>
-    <button class="navi" data-v="browse"><span class="ico">🗂️</span>浏览</button>
-    <button class="navi" data-v="recall"><span class="ico">💡</span>召回</button>
+    <button class="navi grp" id="memgrp"><span class="ico">🧠</span>记忆<span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span class="pip" id="memq" style="display:none;margin-left:0"></span><span class="chev">▸</span></span></button>
+    <div class="subnav" id="memsub" style="display:none">
+      <button class="navi sub" data-v="browse"><span class="ico">🗂️</span>浏览</button>
+      <button class="navi sub" data-v="recall"><span class="ico">💡</span>召回</button>
+      <button class="navi sub" data-v="retro"><span class="ico">🔁</span>复盘</button>
+      <button class="navi sub" data-v="queue"><span class="ico">✅</span>待确认<span class="pip" id="qpip" style="display:none"></span></button>
+    </div>
     <button class="navi" data-v="map"><span class="ico">🗺️</span>地图</button>
-    <button class="navi" data-v="retro"><span class="ico">🔁</span>复盘</button>
-    <button class="navi" data-v="queue"><span class="ico">✅</span>待确认<span class="pip" id="qpip" style="display:none"></span></button>
     <button class="navi" data-v="import"><span class="ico">📥</span>导入</button>
-    <button class="navi" data-v="health"><span class="ico">🩺</span>体检</button>
-    <button class="navi" data-v="help"><span class="ico">📖</span>帮助</button>
     <button class="navi" data-v="settings"><span class="ico">⚙️</span>设置<span class="pip" id="upip" style="display:none">新</span></button>
     <div class="foot" id="foot">本地记忆面板<br>127.0.0.1:7788</div>
   </aside>
@@ -130,10 +138,17 @@ input[type=text]{flex:1;min-width:200px}
     <div id="view-map" style="display:none"></div>
     <div id="view-retro" style="display:none"></div>
     <div id="view-queue" style="display:none"></div>
-    <div id="view-health" style="display:none"></div>
-    <div id="view-help" style="display:none"></div>
     <div id="view-import" style="display:none"></div>
-    <div id="view-settings" style="display:none"></div>
+    <div id="view-settings" style="display:none">
+      <div class="subtabs">
+        <button class="stab on" data-s="general">常规</button>
+        <button class="stab" data-s="health">体检</button>
+        <button class="stab" data-s="help">帮助</button>
+      </div>
+      <div id="set-general"></div>
+      <div id="view-health" style="display:none"></div>
+      <div id="view-help" style="display:none"></div>
+    </div>
   </main>
 </div>
 <div class="ov" id="ov"><div class="modal"><button class="x" onclick="closeModal()">✕</button><div id="mbody"></div></div></div>
@@ -158,7 +173,7 @@ function bars(data,colorFn){if(!data.length)return '<div class="empty">无数据
 async function renderDash(){
   const s=await api('/api/stats');
   $('#foot').innerHTML=`本地记忆面板<br>记忆 ${s.memory_item} · 原始 ${s.raw_event.toLocaleString()}`;
-  const q=s.queue||0;$('#qpip').style.display=q?'inline-block':'none';$('#qpip').textContent=q;
+  const q=s.queue||0;['#qpip','#memq'].forEach(id=>{const el=$(id);if(el){el.style.display=q?'inline-block':'none';el.textContent=q;}});
   const ng=s.nightly||{};
   const first=(s.memory_item===0 && (s.queue||0)===0);
   $('#view-dash').innerHTML=`
@@ -688,9 +703,9 @@ async function testCfg(){
   }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(e.message)}</div>`;}
 }
 async function renderSettings(){
-  const v=$('#view-settings');
-  v.innerHTML=`<div class="head"><h1>设置</h1></div>
-  <div class="panel">
+  const v=$('#set-general');
+  setTab('general');
+  v.innerHTML=`<div class="panel">
     <h3>AI 模型 · API Key</h3>
     <div style="color:var(--mut);font-size:13px;margin-bottom:10px">用哪家就填哪家的 key(默认阿里云百炼;OpenAI / DeepSeek / 智谱 等也行)。不填只能浏览 + 关键词检索。</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -740,13 +755,28 @@ async function renderSettings(){
 }
 
 // ---- 路由 ----
-const R={dash:renderDash,browse:renderBrowse,recall:renderRecall,map:renderMap,retro:renderRetro,queue:renderQueue,health:renderHealth,help:renderHelp,import:renderImport,settings:renderSettings};
+const R={dash:renderDash,browse:renderBrowse,recall:renderRecall,map:renderMap,retro:renderRetro,queue:renderQueue,import:renderImport,settings:renderSettings};
 function show(v){
   document.querySelectorAll('.navi').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  ['dash','browse','recall','map','retro','queue','health','help','import','settings'].forEach(x=>$('#view-'+x).style.display=x===v?'block':'none');
+  ['dash','browse','recall','map','retro','queue','import','settings'].forEach(x=>$('#view-'+x).style.display=x===v?'block':'none');
+  if(['browse','recall','retro','queue'].includes(v))openMem(true);
   R[v]();
 }
-document.querySelectorAll('.navi').forEach(b=>b.addEventListener('click',()=>show(b.dataset.v)));
+function openMem(force){
+  const sub=$('#memsub'),grp=$('#memgrp');
+  const open=force!==undefined?force:sub.style.display==='none';
+  sub.style.display=open?'flex':'none';grp.classList.toggle('open',open);
+}
+function setTab(s){
+  document.querySelectorAll('.stab').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  $('#set-general').style.display=s==='general'?'block':'none';
+  $('#view-health').style.display=s==='health'?'block':'none';
+  $('#view-help').style.display=s==='help'?'block':'none';
+  if(s==='health')renderHealth();else if(s==='help')renderHelp();
+}
+document.querySelectorAll('.navi[data-v]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.v)));
+$('#memgrp').addEventListener('click',()=>openMem());
+document.querySelectorAll('.stab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.s)));
 renderDash();
 api('/api/update-check').then(u=>{if(u&&u.update_available){const p=$('#upip');if(p)p.style.display='inline-block';}}).catch(()=>{});
 </script>
