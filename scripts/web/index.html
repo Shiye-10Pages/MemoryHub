@@ -141,7 +141,7 @@ input[type=text]{flex:1;min-width:200px}
 <script src="/vendor/force-graph.js"></script>
 <script>
 const $=s=>document.querySelector(s);
-const esc=s=>(s==null?'':String(s)).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const escA=s=>esc(s).replace(/"/g,'&quot;');
 async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function post(p,b){return api(p,{method:'POST',headers:{'Content-Type':'application/json','X-MemoryHub':'1'},body:JSON.stringify(b)});}
