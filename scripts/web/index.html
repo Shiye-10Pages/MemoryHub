@@ -204,7 +204,7 @@ function onboardPanel(s1,s2,s3){
       <a href="#" onclick="onboardDismiss();return false" style="font-size:12px;color:var(--mut)">不再显示</a></div>
     <div style="color:var(--mut);font-size:12.5px;margin:4px 0 6px">三步走完就能让任意 AI 随时召回你的记忆。做完自动消失。</div>
     <ol style="margin:0;padding:0;list-style:none">
-      ${onboardStep(s1,1,'配 API Key','选模型 provider、填 key(把记忆向量化用;默认阿里云百炼,OpenAI / DeepSeek 等也行)。不填也能浏览 + 关键词检索。','去设置',"show('settings')")}
+      ${onboardStep(s1,1,'配 API Key','选模型 provider、填 key(默认阿里云百炼,OpenAI / DeepSeek 等也行)。导入和语义召回都要用它把记忆向量化——所以这是第一步前置。','去设置',"show('settings')")}
       ${onboardStep(s2,2,'导入记忆','拖入 Claude 导出的 memories.json,或一键扫描本机 Claude Code 对话。','去导入',"show('import')")}
       ${onboardStep(s3,3,'批准待确认','AI 只是「提名」,你在待确认里逐条批准,才真正入库、参与召回。','去待确认',"show('queue')")}
     </ol></div>`;
@@ -799,7 +799,7 @@ async function renderSettings(){
   setTab('general');
   v.innerHTML=`<div class="panel">
     <h3>AI 模型 · API Key</h3>
-    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">用哪家就填哪家的 key(默认阿里云百炼;OpenAI / DeepSeek / 智谱 等也行)。不填只能浏览 + 关键词检索。</div>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">用哪家就填哪家的 key(默认阿里云百炼;OpenAI / DeepSeek / 智谱 等也行)。<b>导入记忆、语义召回都需要它</b>;不配 key 只能浏览已有记忆 + 关键词检索,无法导入新记忆。</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
       <select id="cfgprov" style="height:38px;border:1px solid var(--bd);border-radius:8px;padding:0 8px;background:var(--surf);color:var(--tx)"></select>
       <input id="cfgkey" type="password" placeholder="粘贴 API Key" autocomplete="off" style="flex:1;min-width:200px;height:38px;border:1px solid var(--bd);border-radius:8px;padding:0 12px;background:var(--surf);color:var(--tx)">

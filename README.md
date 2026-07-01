@@ -38,7 +38,7 @@ scripts/run_web.sh        # 启动本地面板 → http://127.0.0.1:7788
 > 想要**无终端窗口 + 品牌图标**的 App:`osacompile -o MemoryHub.app -e 'do shell script "bash \"'"$PWD"'/打开记忆面板.command\""'`,再在其“显示简介(⌘I)”里把 `assets/icon-dark.png` 拖到左上角图标上。品牌图标(深/浅两版 + `MemoryHub.icns`)在 `assets/`,可用 `python3 assets/make_icon.py` 重新生成。
 
 ### 配 API Key(在面板里,不用改文件)
-打开 **「设置 → AI 模型 · API Key」**:选一个 provider、粘 key、点**测试连通**。支持 **阿里云百炼(默认)/ OpenAI / DeepSeek / 智谱GLM / Kimi / SiliconFlow**,或任意 OpenAI 兼容服务。**不填也能用**浏览 + 关键词检索;要提纯 / 语义召回才需要 key。
+打开 **「设置 → AI 模型 · API Key」**:选一个 provider、粘 key、点**测试连通**。支持 **阿里云百炼(默认)/ OpenAI / DeepSeek / 智谱GLM / Kimi / SiliconFlow**,或任意 OpenAI 兼容服务。**导入记忆、提纯、语义召回都需要 key**(把记忆向量化);不配 key 只能浏览**已有**记忆 + 关键词检索,无法导入新记忆。
 - 推荐:提纯用强指令模型(qwen3-max / deepseek-chat / gpt-4.1-mini / glm-4),嵌入用 text-embedding-v4 / text-embedding-3-small / bge-m3。
 - 注意:DeepSeek、Kimi 不提供嵌入,需在 `.env` 另配一家嵌入(如 openai / dashscope)。`PERSONA_NAME` 可选(给提纯 prompt 署名)。
 
