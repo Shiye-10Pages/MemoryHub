@@ -1035,6 +1035,63 @@ def api_update_check():
     return jsonify(res)
 
 
+def _git(args, timeout=60):
+    p = subprocess.run(["git", "-C", HUB] + args, capture_output=True,
+                       text=True, timeout=timeout)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+
+def _restart_soon():
+    """响应发出后再自替换进程,避免截断 HTTP 响应。"""
+    import threading
+
+    def _go():
+        time.sleep(1.2)
+        try:
+            os.execv(sys.executable, [sys.executable, os.path.join(WEB, "server.py")])
+        except Exception:
+            os._exit(3)   # execv 失败则退出,交给启动器/用户重开
+    threading.Thread(target=_go, daemon=True).start()
+
+
+@app.route("/api/update-apply", methods=["POST"])
+def api_update_apply():
+    require_write()
+    import shutil
+    gh = "https://github.com/" + GITHUB_REPO
+    if not os.path.isdir(os.path.join(HUB, ".git")):
+        return jsonify(ok=False, url=gh,
+                       message="当前不是 git 安装(可能是下载的 zip 包),无法一键更新。请到 GitHub 下载最新版覆盖,或用 git clone 重装。")
+    if not shutil.which("git"):
+        return jsonify(ok=False, url=gh,
+                       message="系统未安装 git,无法一键更新。装好 git 后重试,或手动到 GitHub 下载最新版。")
+    try:
+        rc, dirty = _git(["status", "--porcelain"])
+        if rc == 0 and dirty:
+            return jsonify(ok=False,
+                           message="检测到你本地改动过代码(未提交),一键更新已中止以免覆盖你的改动。请先 git stash / commit,或手动更新。")
+        rc, out = _git(["pull", "--ff-only"], timeout=120)
+        if rc != 0:
+            return jsonify(ok=False, url=gh,
+                           message="拉取更新失败:" + (out or "未知错误") + "。可到 GitHub 手动更新。")
+    except Exception as e:
+        return jsonify(ok=False, url=gh, message="更新出错:" + str(e))
+    req = os.path.join(HUB, "requirements.txt")   # 依赖有变则补装,失败不阻断
+    if os.path.exists(req):
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", req],
+                           cwd=HUB, capture_output=True, text=True, timeout=180)
+        except Exception:
+            pass
+    try:
+        new = open(os.path.join(HUB, "VERSION"), encoding="utf-8").read().strip()
+    except Exception:
+        new = "?"
+    _restart_soon()
+    return jsonify(ok=True, restarting=True, version=new,
+                   message="已更新到 " + new + ",面板正在重启,请稍候…")
+
+
 def _detect_json_kind(path):
     """判断一个 json 是哪种源:memories / claude-web / chatgpt / unknown。"""
     try:

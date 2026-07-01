@@ -721,6 +721,19 @@ async function testCfg(){
     msg.innerHTML=`<div class="note" style="${st}">${d.ok?'✓':'✗'} ${esc(d.detail)}</div>`;
   }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(e.message)}</div>`;}
 }
+async function doUpdate(btn){
+  const box=$('#upd');
+  btn.disabled=true;btn.textContent='更新中…';
+  box.innerHTML=' · <span style="color:var(--mut)">正在拉取新版本…</span>';
+  try{
+    const d=await post('/api/update-apply',{});
+    if(!d.ok){box.innerHTML=` · <span style="color:var(--dng)">✗ ${esc(d.message||'更新失败')}</span>`+(d.url?` <a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--mut)">手动更新 →</a>`:'');return;}
+    box.innerHTML=` · <span style="color:var(--ok)">✓ ${esc(d.message)}</span>`;
+    let tries=0;
+    const wait=()=>{tries++;fetch('/api/update-check',{cache:'no-store'}).then(()=>location.reload()).catch(()=>{tries<40?setTimeout(wait,1000):(box.innerHTML=' · <span style="color:var(--dng)">重启超时,请手动重开面板</span>');});};
+    setTimeout(wait,2500);
+  }catch(e){box.innerHTML=` · <span style="color:var(--dng)">✗ ${esc(e.message)}</span>`;}
+}
 async function renderSettings(){
   const v=$('#set-general');
   setTab('general');
@@ -758,7 +771,7 @@ async function renderSettings(){
   loadCfg();
   try{const u=await api('/api/update-check');
     $('#ver').textContent=u.current||'?';
-    if(u.update_available){$('#upd').innerHTML=` · <a href="${esc(u.url||'#')}" target="_blank" rel="noopener" style="color:var(--dng)">发现新版 ${esc(u.latest)} → 去更新</a>`;const p=$('#upip');if(p)p.style.display='inline-block';}
+    if(u.update_available){$('#upd').innerHTML=` · <span style="color:var(--dng)">发现新版 ${esc(u.latest)}</span> <button class="btn pri" style="height:28px;padding:0 12px;margin-left:4px" onclick="doUpdate(this)">立即更新</button> <a href="${esc(u.url||'#')}" target="_blank" rel="noopener" style="font-size:12px;color:var(--mut)">更新日志</a>`;const p=$('#upip');if(p)p.style.display='inline-block';}
     else if(u.latest){$('#upd').innerHTML=' · <span style="color:var(--ok)">已是最新</span>';}
   }catch(e){$('#ver').textContent='?';}
   try{const c=await api('/api/connect-info');

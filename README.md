@@ -63,8 +63,10 @@ claude mcp add memoryhub -- /path/to/.venv/bin/python /path/to/MemoryHub/scripts
 ```
 生效后任意会话即可调用 `recall_memory`。更多见 `docs/接入其他AI.md`。
 
-## 自动检查更新
-面板每天一次向 GitHub 查是否有新版本(**只拉版本号,无任何遥测**);有新版会在「设置」里提示。离线则静默跳过。
+## 自动检查更新 + 一键更新
+面板每天一次向 GitHub 查是否有新版本(**只拉版本号,无任何遥测**);有新版会在「设置」里红字提示 + 顶部小红点。离线则静默跳过。
+
+发现新版时点**「立即更新」**即可:面板自己 `git pull` 拉新代码、按需补装依赖、然后**自动重启**生效——全程不碰你的本地数据(记忆库、`.env` 均在 `.gitignore` 里,`git pull` 不会动)。若你本地改过代码(未提交)或不是 `git clone` 装的,会中止并提示手动更新,绝不覆盖你的改动。
 
 ## 扩展
 想接自己的数据源?见 `docs/extending.md` 与 `examples/ingest_custom_jsonl.py`;保真契约见 `CONTRACT.md`。
