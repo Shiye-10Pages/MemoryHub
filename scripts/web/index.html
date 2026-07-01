@@ -173,6 +173,20 @@ function bars(data,colorFn){if(!data.length)return '<div class="empty">无数据
   return '<div class="bars">'+data.map(d=>`<div class="b"><span class="lab">${esc(d.label)}</span><span class="track"><span class="fill" style="width:${Math.max(2,Math.round(d.n/m*100))}%;background:${colorFn?colorFn(d.label):'#5b50e6'}"></span></span><span class="num">${d.n}</span></div>`).join('')+'</div>';}
 
 // ---- 仪表盘 ----
+function donut(data,colorFn,topN){
+  data=data.filter(d=>d.n>0).slice().sort((a,b)=>b.n-a.n);
+  const total=data.reduce((s,d)=>s+d.n,0)||1;
+  let sl=data;
+  if(topN&&data.length>topN){const head=data.slice(0,topN);const rest=data.slice(topN).reduce((s,d)=>s+d.n,0);sl=rest>0?head.concat([{label:'其他',n:rest,_o:1}]):head;}
+  const PAL=['#5b50e6','#0d9488','#d97706','#db2777','#2563eb','#7c3aed','#0891b2','#059669','#e11d48','#f59e0b'];
+  const col=(d,i)=>d._o?'#c7c9d1':(colorFn?colorFn(d.label):PAL[i%PAL.length]);
+  const C=2*Math.PI*54;let acc=0;
+  const arcs=sl.map((d,i)=>{const f=d.n/total,dash=f*C;const c=`<circle cx="70" cy="70" r="54" fill="none" stroke="${col(d,i)}" stroke-width="22" stroke-dasharray="${dash.toFixed(2)} ${(C-dash).toFixed(2)}" stroke-dashoffset="${(-acc*C).toFixed(2)}" transform="rotate(-90 70 70)"/>`;acc+=f;return c;}).join('');
+  const fmt=n=>n>=1000?(n/1000).toFixed(1)+'k':n;
+  const svg=`<svg viewBox="0 0 140 140" style="width:130px;height:130px;flex:none"><circle cx="70" cy="70" r="54" fill="none" stroke="var(--bg)" stroke-width="22"/>${arcs}<text x="70" y="66" text-anchor="middle" font-size="23" font-weight="600" fill="var(--tx)">${fmt(total)}</text><text x="70" y="85" text-anchor="middle" font-size="11" fill="var(--mut)">总计</text></svg>`;
+  const leg=sl.map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:2.5px 0"><span style="width:10px;height:10px;border-radius:3px;background:${col(d,i)};flex:none"></span><span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.label)}</span><span style="color:var(--mut);font:12px ui-monospace,monospace">${fmt(d.n)}</span><span style="color:var(--faint);width:34px;text-align:right;font-size:11px">${(d.n/total*100).toFixed(0)}%</span></div>`).join('');
+  return `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div>${svg}</div><div style="flex:1;min-width:150px;max-height:200px;overflow:auto">${leg}</div></div>`;
+}
 async function renderDash(){
   const s=await api('/api/stats');
   $('#foot').innerHTML=`本地记忆面板<br>记忆 ${s.memory_item} · 原始 ${s.raw_event.toLocaleString()}`;
@@ -188,9 +202,11 @@ async function renderDash(){
      <div class="metric"><div class="ico">⏳</div><div class="v">${q}</div><div class="l">待确认</div></div>
      <div class="metric"><div class="ico">🌙</div><div class="v" style="font-size:16px;margin-top:14px">${esc(ng.state||'?')}</div><div class="l">夜间任务</div></div>
    </div>
-   <div class="panel"><h3>按类型(现行记忆构成)</h3>${bars(s.by_type.map(x=>({label:x.type,n:x.n})),tcolor)}</div>
-   <div class="panel"><h3>按来源(采了多少原始记录)</h3>${bars(s.raw_sources.map(x=>({label:x.source,n:x.n})))}</div>
-   <div class="panel"><h3>按状态(待核多 = 该去确认了)</h3>${bars(s.by_status.map(x=>({label:x.status,n:x.n})),l=>l==='已确认'?'#0e8a52':((l==='已被取代'||l==='休眠')?'#cc3b32':'#a65a00'))}</div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-bottom:18px">
+     <div class="panel" style="margin:0"><h3>按类型 · 现行记忆构成</h3>${donut(s.by_type.map(x=>({label:x.type,n:x.n})),tcolor,7)}</div>
+     <div class="panel" style="margin:0"><h3>按来源 · 采了多少原始记录</h3>${donut(s.raw_sources.map(x=>({label:x.source,n:x.n})),null,8)}</div>
+     <div class="panel" style="margin:0"><h3>按状态 · 待核多 = 该确认了</h3>${donut(s.by_status.map(x=>({label:x.status,n:x.n})),l=>l==='已确认'?'#0e8a52':((l==='已被取代'||l==='休眠'||l==='已失效')?'#cc3b32':'#a65a00'))}</div>
+   </div>
    <div class="panel"><h3>最近一次夜跑</h3><div class="kv" style="font-family:ui-monospace,monospace">${esc(ng.last_log||'(无日志)')}</div></div>`;
 }
 
