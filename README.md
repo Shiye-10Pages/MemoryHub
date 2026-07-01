@@ -35,7 +35,7 @@ scripts/run_web.sh        # 启动本地面板 → http://127.0.0.1:7788
 之后**双击启动**即可:macOS `打开记忆面板.command`、Windows `打开记忆面板.bat`(首次会自动初始化)。首次打开面板顶部会给你三步引导:① 配 API Key → ② 导入记忆 → ③ 在「待确认」里逐条批准。
 
 > macOS 首次双击若被拦(“来自身份不明的开发者”),**右键 → 打开**一次即可;或到 系统设置 → 隐私与安全性 →“仍要打开”。
-> 想要**无终端窗口 + 自定义图标**的 App:`osacompile -o MemoryHub.app -e 'do shell script "bash \"'"$PWD"'/打开记忆面板.command\""'`,再在其“显示简介”里把图标图片粘上去。
+> 想要**无终端窗口 + 品牌图标**的 App:`osacompile -o MemoryHub.app -e 'do shell script "bash \"'"$PWD"'/打开记忆面板.command\""'`,再在其“显示简介(⌘I)”里把 `assets/icon-dark.png` 拖到左上角图标上。品牌图标(深/浅两版 + `MemoryHub.icns`)在 `assets/`,可用 `python3 assets/make_icon.py` 重新生成。
 
 ### 配 API Key(在面板里,不用改文件)
 打开 **「设置 → AI 模型 · API Key」**:选一个 provider、粘 key、点**测试连通**。支持 **阿里云百炼(默认)/ OpenAI / DeepSeek / 智谱GLM / Kimi / SiliconFlow**,或任意 OpenAI 兼容服务。**不填也能用**浏览 + 关键词检索;要提纯 / 语义召回才需要 key。

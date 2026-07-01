@@ -1200,6 +1200,15 @@ def api_provider_test():
     return jsonify({"ok": ok, "detail": detail})
 
 
+@app.route("/favicon.ico")
+@app.route("/api/icon")
+def api_icon():
+    p = os.path.join(HUB, "assets", "icon-dark.png")
+    if not os.path.exists(p):
+        abort(404)
+    return Response(open(p, "rb").read(), mimetype="image/png")
+
+
 @app.route("/api/brand-qr")
 def api_brand_qr():
     p = os.path.join(WEB, "static", "qr-wecom.png")
