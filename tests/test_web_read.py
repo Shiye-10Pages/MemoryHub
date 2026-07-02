@@ -21,7 +21,7 @@ def test_bad_host_rejected(client):
     assert client.get("/api/stats").status_code == 403
 
 
-def test_update_check_and_daily_cache(client, monkeypatch):
+def test_update_check_and_daily_cache(client, env, monkeypatch):
     calls = {"n": 0}
 
     class FakeResp:
@@ -46,6 +46,12 @@ def test_update_check_and_daily_cache(client, monkeypatch):
     r2 = client.get("/api/update-check", headers=H).get_json()   # 第二次走当日缓存
     assert calls["n"] == 1
     assert r2["update_available"] is True
+    # 缓存命中期间版本变了(如刚一键更新)→ update_available 必须按缓存 latest 重算,红点不残留
+    (env / "VERSION").write_text("10.0.0\n")
+    r3 = client.get("/api/update-check", headers=H).get_json()
+    assert calls["n"] == 1
+    assert r3["current"] == "10.0.0"
+    assert r3["update_available"] is False
 
 
 def test_connect_info_absolute_paths(client):

@@ -1009,7 +1009,8 @@ def api_update_check():
         cached = json.load(open(cache, encoding="utf-8"))
         t = datetime.datetime.fromisoformat(cached.get("checked_at", ""))
         if (now - t).total_seconds() < 86400:
-            cached["current"] = cur
+            cached["current"] = cur                        # 版本可能已变(如刚一键更新):用缓存的 latest 重算
+            cached["update_available"] = _vgt(cached.get("latest") or "0", cur)
             return jsonify(cached)
     except Exception:
         pass
