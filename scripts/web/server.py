@@ -1044,15 +1044,25 @@ def _git(args, timeout=60):
 
 
 def _restart_soon():
-    """响应发出后再自替换进程,避免截断 HTTP 响应。"""
+    """响应发出后重启:起分离子进程接班,父进程退位释放端口。
+
+    不用 os.execv:werkzeug 会把监听 socket 设为可继承(serving.py 里
+    set_inheritable(True)),execv 后旧 fd 仍占着端口 → 新进程 EADDRINUSE。
+    Popen 默认 close_fds=True,子进程不带旧 fd;父进程退出后端口释放,
+    子进程靠 __main__ 的 bind 重试完成交接。"""
     import threading
 
     def _go():
         time.sleep(1.2)
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("WERKZEUG_SERVER_FD", "WERKZEUG_RUN_MAIN")}
         try:
-            os.execv(sys.executable, [sys.executable, os.path.join(WEB, "server.py")])
+            subprocess.Popen([sys.executable, os.path.join(WEB, "server.py")],
+                             cwd=HUB, env=env, start_new_session=True)
         except Exception:
-            os._exit(3)   # execv 失败则退出,交给启动器/用户重开
+            os._exit(3)   # 起不来接班进程:退出,交给启动器/用户重开
+        time.sleep(0.8)
+        os._exit(0)       # 父进程退位 → 监听端口释放
     threading.Thread(target=_go, daemon=True).start()
 
 
@@ -1280,4 +1290,11 @@ def api_brand_qr():
 
 if __name__ == "__main__":
     print(f"MemoryHub 面板 → http://{HOST}:{PORT}")
-    app.run(host=HOST, port=PORT, debug=False)
+    for _attempt in range(20):
+        try:
+            app.run(host=HOST, port=PORT, debug=False)
+            break
+        except (SystemExit, OSError):        # 一键更新交接:旧进程退位瞬间端口可能未释放
+            if _attempt == 19:
+                raise
+            time.sleep(0.5)
