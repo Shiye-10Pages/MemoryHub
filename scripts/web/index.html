@@ -705,9 +705,12 @@ function renderImport(){
   const v=$('#view-import');
   v.innerHTML=`<div class="head"><h1>导入记忆</h1><p>把各家 AI 的记忆 / 对话喂进来,拆成候选、过四道保真闸,落到「待确认」等你逐条批准。AI 推断的记忆<b>绝不自动入库</b>。</p></div>
   <div class="panel">
-    <h3>① 本机 Claude Code(免导出)</h3>
-    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">直接扫描本机 <code>~/.claude/projects</code> 里的 Claude Code 对话,不用导出任何东西。</div>
-    <button class="btn pri" onclick="doScanCC()">🔍 扫描本机 Claude Code 对话</button>
+    <h3>① 本机直读(免导出)</h3>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">直接扫描本机对话记录,不用导出任何东西:Claude Code 读 <code>~/.claude/projects</code>,Codex 读 <code>~/.codex/sessions</code>。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn pri" onclick="doScanCC()">🔍 扫描本机 Claude Code 对话</button>
+      <button class="btn pri" onclick="doScanCodex()">🔍 扫描本机 Codex 对话</button>
+    </div>
     <div id="ccmsg" style="margin-top:10px"></div>
   </div>
   <div class="panel">
@@ -743,15 +746,17 @@ function renderImport(){
   drop.ondrop=e=>{e.preventDefault();drop.style.borderColor='var(--bd)';drop.style.background='';if(e.dataTransfer.files[0])doImport(e.dataTransfer.files[0]);};
   inp.onchange=()=>{if(inp.files[0])doImport(inp.files[0]);};
 }
-async function doScanCC(){
-  const msg=$('#ccmsg');msg.innerHTML='<div class="note">正在扫描本机 Claude Code 对话并提纯…(首次可能要几分钟,别关页面)</div>';
+async function doScan(ep,label){
+  const msg=$('#ccmsg');msg.innerHTML=`<div class="note">正在扫描本机 ${label} 对话并提纯…(首次可能要几分钟,别关页面)</div>`;
   try{
-    const r=await fetch('/api/import/claude-code',{method:'POST',headers:{'X-MemoryHub':'1'}});
+    const r=await fetch(ep,{method:'POST',headers:{'X-MemoryHub':'1'}});
     const d=await r.json();
     if(!r.ok||!d.ok){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(d.message||('HTTP '+r.status))}${d.need_key?` <a href="#" onclick="show('settings');return false">去设置填 key →</a>`:''}</div>`;return;}
     msg.innerHTML=`<div class="note" style="background:var(--ok-soft);color:var(--ok)">✓ ${esc(d.message)}${d.queued?` <a href="#" onclick="show('queue');return false">去待确认队列 →</a>`:''}</div>`;
   }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ 扫描失败:${esc(e.message)}</div>`;}
 }
+function doScanCC(){return doScan('/api/import/claude-code','Claude Code');}
+function doScanCodex(){return doScan('/api/import/codex','Codex');}
 async function doImport(file){
   const msg=$('#imsg');
   msg.innerHTML=`<div class="note">正在导入并提纯 <b>${esc(file.name)}</b>…(可能要几十秒,别关页面)</div>`;

@@ -6,6 +6,7 @@ import sys
 
 import gate
 import ingest_claude_memories as icm
+import ingest_codex as icx
 from conftest import make_db
 
 SAMPLE = {
@@ -76,6 +77,61 @@ def test_gate_with_embed_routes_to_queue(tmp_path, monkeypatch):
     qn = con.execute("SELECT count(*) FROM human_queue").fetchone()[0]
     con.close()
     assert qn == 3                                      # force_review 全部进人工闸,零自动入正库
+
+
+def _codex_rollout(tmp_path):
+    lines = [
+        {"timestamp": "2026-06-01T10:00:00", "type": "session_meta",
+         "payload": {"id": "sess-1", "cwd": "/tmp/projx"}},
+        {"timestamp": "2026-06-01T10:00:01", "type": "response_item",
+         "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "<environment_context>噪声</environment_context>"}]}},
+        {"timestamp": "2026-06-01T10:00:02", "type": "response_item",
+         "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "帮我定个发布节奏"}]}},
+        {"timestamp": "2026-06-01T10:00:03", "type": "response_item",
+         "payload": {"type": "reasoning", "summary": []}},
+        {"timestamp": "2026-06-01T10:00:04", "type": "response_item",
+         "payload": {"type": "message", "role": "assistant",
+                     "content": [{"type": "output_text", "text": "建议每周三发布。"}]}},
+        {"timestamp": "2026-06-01T10:00:05", "type": "response_item",
+         "payload": {"type": "function_call", "name": "shell"}},
+    ]
+    d = tmp_path / "sessions" / "2026" / "06" / "01"
+    d.mkdir(parents=True)
+    f = d / "rollout-2026-06-01T10-00-00-sess-1.jsonl"
+    f.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines), encoding="utf-8")
+    return str(tmp_path / "sessions" / "*" / "*" / "*" / "rollout-*.jsonl")
+
+
+def test_ingest_codex_extracts_real_turns_only(tmp_path, monkeypatch):
+    db = str(tmp_path / "memory.db")
+    make_db(db)
+    monkeypatch.setattr(icx, "DB", db)
+    monkeypatch.setattr(icx, "RAW_DIR", str(tmp_path / "raw" / "codex"))
+    monkeypatch.setattr(icx, "SRC_GLOB", _codex_rollout(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["ingest_codex.py"])
+    icx.main()
+    con = sqlite3.connect(db)
+    rows = con.execute("SELECT role,text,conv_id,project FROM raw_event WHERE source='codex' ORDER BY seq").fetchall()
+    con.close()
+    assert [(r[0], r[1]) for r in rows] == [("user", "帮我定个发布节奏"), ("assistant", "建议每周三发布。")]
+    assert rows[0][2] == "sess-1" and rows[0][3] == "/tmp/projx"   # 会话 id / 项目目录来自 session_meta
+
+
+def test_ingest_codex_idempotent(tmp_path, monkeypatch):
+    db = str(tmp_path / "memory.db")
+    make_db(db)
+    monkeypatch.setattr(icx, "DB", db)
+    monkeypatch.setattr(icx, "RAW_DIR", str(tmp_path / "raw" / "codex"))
+    monkeypatch.setattr(icx, "SRC_GLOB", _codex_rollout(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["ingest_codex.py"])
+    icx.main()
+    icx.main()                                          # 重跑:mtime 未变 → 全跳过
+    con = sqlite3.connect(db)
+    n = con.execute("SELECT count(*) FROM raw_event WHERE source='codex'").fetchone()[0]
+    con.close()
+    assert n == 2
 
 
 def test_gate_idempotent_rerun(tmp_path, monkeypatch):

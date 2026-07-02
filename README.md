@@ -18,7 +18,7 @@
 | **Claude(网页 / 桌面)** | 账号级官方导出(`conversations.json`) | `scripts/ingest_claude_web.py` | MCP `recall_memory` | ✅ 已实现 |
 | **Claude 云端记忆** | 导出内 `memories.json` | `scripts/ingest_claude_memories.py` · **面板一键导入** | 人工确认后入库 | ✅ 已实现 |
 | **ChatGPT(网页 / 桌面)** | 账号级官方导出(`conversations.json`) | `scripts/ingest_chatgpt.py` | 主动读取指令 | ✅ 已实现 |
-| Codex | 本地会话日志 | — | 主动读取指令 | 🚧 计划中 |
+| **Codex CLI**(本地) | 本地会话直读(`~/.codex/sessions`) | `scripts/ingest_codex.py` · **面板一键扫描** | 主动读取指令 | ✅ 已实现 |
 | 各端本地历史直读(免导出) | 本地缓存解析 | — | — | 🚧 计划中 |
 | 自动增量同步 | 免手动导出 | — | — | 🚧 计划中 |
 

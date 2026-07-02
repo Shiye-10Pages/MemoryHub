@@ -1232,6 +1232,35 @@ def api_import_claude_code():
                     "detail": tail[-1] if tail else ""})
 
 
+@app.route("/api/import/codex", methods=["POST"])
+def api_import_codex():
+    require_write()
+    if not _alibaba_key():
+        return jsonify({"ok": False, "need_key": True,
+                        "message": "扫描需要先在「设置」里填 API Key(用于把记忆向量化)。"}), 400
+    if not glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl")):
+        return jsonify({"ok": False,
+                        "message": "未找到本机 Codex 会话(~/.codex/sessions):没装 Codex CLI 或还没用它聊过。"}), 400
+    py = sys.executable
+    try:
+        subprocess.run([py, os.path.join(HUB, "scripts", "ingest_codex.py")],
+                       cwd=HUB, capture_output=True, text=True, timeout=600)
+        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
+                       cwd=HUB, capture_output=True, text=True, timeout=1800)
+        gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
+                            cwd=HUB, capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
+    c = db()
+    qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+    raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='codex'").fetchone()[0]
+    c.close()
+    tail = (gr.stdout or gr.stderr or "").strip().splitlines()
+    return jsonify({"ok": True, "queued": qn,
+                    "message": f"已扫描本机 Codex 对话(累计 {raw_n} 条原始记录),「待确认队列」现有 {qn} 条。",
+                    "detail": tail[-1] if tail else ""})
+
+
 @app.route("/api/config")
 def api_config():
     import provider
