@@ -34,8 +34,9 @@ from embed import embed_texts, DIM, MODEL  # noqa: E402  队列降级入库需�
 WEB = os.path.dirname(os.path.abspath(__file__))
 HUB = os.path.dirname(os.path.dirname(WEB))
 DB = os.path.join(HUB, "memory.db")
-HOST, PORT = "127.0.0.1", 7788
-ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+HOST = os.environ.get("MEMORYHUB_HOST", "127.0.0.1")      # 仅本机;改绑外网请自担风险
+PORT = int(os.environ.get("MEMORYHUB_PORT", "7788"))      # 端口被占时可用环境变量改
+ALLOWED_HOSTS = {f"{HOST}:{PORT}", f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 
 app = Flask(__name__, static_folder=None)   # 不挂静态目录(防穿越)
 
