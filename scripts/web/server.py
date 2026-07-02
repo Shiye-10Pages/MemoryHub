@@ -695,6 +695,37 @@ def api_map():
     return jsonify(out)
 
 
+@app.route("/api/map-timeline")
+def api_map_timeline():
+    """主题演化时间线:每主题按月的记忆形成量(搭车 _MAP_CACHE 的聚类结果)。"""
+    data = _MAP_CACHE.get("data") or {}
+    pts = data.get("points") or []
+    if not pts:
+        return jsonify({"months": [], "series": [],
+                        "note": "先打开「地图」等聚类完成,再看主题演化。"})
+    cl_of = {p["id"]: p["cluster"] for p in pts if p.get("cluster", -1) >= 0}
+    labels = {cl["id"]: cl["label"] for cl in (data.get("clusters") or [])}
+    c = db()
+    rows = c.execute("SELECT id, substr(valid_from,1,7) FROM memory_item "
+                     "WHERE valid_until IS NULL AND valid_from IS NOT NULL").fetchall()
+    c.close()
+    months, buckets = set(), {}
+    for mid, m in rows:
+        ci = cl_of.get(mid)
+        if ci is None or not m or len(m) < 7:
+            continue
+        months.add(m)
+        buckets.setdefault(ci, {})
+        buckets[ci][m] = buckets[ci].get(m, 0) + 1
+    months = sorted(months)[-24:]                       # 最多看最近 24 个月
+    series = [{"id": ci, "label": labels.get(ci, f"主题{ci}"),
+               "total": sum(mb.values()),
+               "counts": [mb.get(m, 0) for m in months]}
+              for ci, mb in buckets.items()]
+    series.sort(key=lambda s: -s["total"])
+    return jsonify({"months": months, "series": series})
+
+
 @app.route("/api/health")
 def api_health():
     c = db()
