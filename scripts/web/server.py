@@ -22,6 +22,7 @@ import sqlite3
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # scripts/
@@ -1261,6 +1262,104 @@ def api_import_codex():
                     "detail": tail[-1] if tail else ""})
 
 
+SYNC_STATE = os.path.join(HUB, "logs", "sync_state.json")
+_sync_lock = threading.Lock()
+
+
+def _sync_pipeline():
+    """增量同步本地源:ingest(claude-code + codex)→ distill → gate。
+
+    ingest 靠 ingest_cursor 增量、distill/gate 靠去重幂等 → 重复跑安全。"""
+    if not _alibaba_key():
+        return {"ok": False, "message": "未配 API Key,跳过同步(在「设置」里配好即可)"}
+    if not _sync_lock.acquire(blocking=False):
+        return {"ok": False, "message": "已有一次同步在进行中"}
+    try:
+        py = sys.executable
+        for script in ("ingest.py", "ingest_codex.py"):
+            subprocess.run([py, os.path.join(HUB, "scripts", script)],
+                           cwd=HUB, capture_output=True, text=True, timeout=600)
+        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
+                       cwd=HUB, capture_output=True, text=True, timeout=1800)
+        subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
+                       cwd=HUB, capture_output=True, text=True, timeout=1800)
+        c = db()
+        qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+        rn = c.execute("SELECT count(*) FROM raw_event").fetchone()[0]
+        c.close()
+        res = {"ok": True, "queued": qn,
+               "message": f"同步完成:累计 {rn} 条原始记录,「待确认」现有 {qn} 条。"}
+    except Exception as e:
+        res = {"ok": False, "message": f"同步失败:{str(e)[:160]}"}
+    finally:
+        _sync_lock.release()
+    res["ts"] = time.strftime("%Y-%m-%d %H:%M")
+    res["ts_epoch"] = time.time()
+    try:
+        os.makedirs(os.path.dirname(SYNC_STATE), exist_ok=True)
+        json.dump(res, open(SYNC_STATE, "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+        pass
+    return res
+
+
+def _autosync_hours():
+    import provider
+    try:
+        return float(provider._env("MEMORYHUB_AUTOSYNC_HOURS") or 0)
+    except Exception:
+        return 0
+
+
+def _autosync_loop():
+    """每小时醒来看一眼:开关打开且距上次同步够久 → 跑一轮。异常静默,不拖垮面板。"""
+    while True:
+        time.sleep(3600)
+        try:
+            hours = _autosync_hours()
+            if hours <= 0:
+                continue
+            last = 0
+            if os.path.exists(SYNC_STATE):
+                last = (json.load(open(SYNC_STATE, encoding="utf-8")) or {}).get("ts_epoch", 0)
+            if time.time() - last >= hours * 3600:
+                _sync_pipeline()
+        except Exception:
+            pass
+
+
+@app.route("/api/sync", methods=["POST"])
+def api_sync():
+    require_write()
+    return jsonify(_sync_pipeline())
+
+
+@app.route("/api/sync-status")
+def api_sync_status():
+    st = {}
+    try:
+        if os.path.exists(SYNC_STATE):
+            st = json.load(open(SYNC_STATE, encoding="utf-8")) or {}
+    except Exception:
+        st = {}
+    return jsonify({"last": {k: st.get(k) for k in ("ok", "message", "ts")},
+                    "auto_hours": _autosync_hours()})
+
+
+@app.route("/api/autosync", methods=["POST"])
+def api_autosync():
+    require_write()
+    a = request.get_json(force=True, silent=True) or {}
+    try:
+        hours = float(a.get("hours", 0))
+        assert 0 <= hours <= 168
+    except Exception:
+        return jsonify({"ok": False, "message": "hours 需在 0–168 之间(0=关闭)。"}), 400
+    _set_env({"MEMORYHUB_AUTOSYNC_HOURS": str(int(hours) if hours == int(hours) else hours)})
+    return jsonify({"ok": True, "auto_hours": hours,
+                    "message": ("已开启:每 %g 小时自动增量同步一次。" % hours) if hours else "已关闭自动同步。"})
+
+
 @app.route("/api/config")
 def api_config():
     import provider
@@ -1359,6 +1458,7 @@ def api_backup():
 
 if __name__ == "__main__":
     print(f"MemoryHub 面板 → http://{HOST}:{PORT}")
+    threading.Thread(target=_autosync_loop, daemon=True).start()   # 自动增量同步(默认关,设置见「导入」页)
     for _attempt in range(20):
         try:
             app.run(host=HOST, port=PORT, debug=False)

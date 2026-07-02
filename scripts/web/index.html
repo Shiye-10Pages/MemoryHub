@@ -710,6 +710,11 @@ function renderImport(){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn pri" onclick="doScanCC()">🔍 扫描本机 Claude Code 对话</button>
       <button class="btn pri" onclick="doScanCodex()">🔍 扫描本机 Codex 对话</button>
+      <button class="btn" onclick="doSyncNow(this)">⟳ 立即同步(增量)</button>
+    </div>
+    <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--mut)">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="autosync" onchange="toggleAutosync(this)">每天自动增量同步一次(需已配 key;提纯会消耗少量 API 额度)</label>
+      <span id="syncline"></span>
     </div>
     <div id="ccmsg" style="margin-top:10px"></div>
   </div>
@@ -745,6 +750,7 @@ function renderImport(){
   drop.ondragleave=()=>{drop.style.borderColor='var(--bd)';drop.style.background='';};
   drop.ondrop=e=>{e.preventDefault();drop.style.borderColor='var(--bd)';drop.style.background='';if(e.dataTransfer.files[0])doImport(e.dataTransfer.files[0]);};
   inp.onchange=()=>{if(inp.files[0])doImport(inp.files[0]);};
+  loadSyncStatus();
 }
 async function doScan(ep,label){
   const msg=$('#ccmsg');msg.innerHTML=`<div class="note">正在扫描本机 ${label} 对话并提纯…(首次可能要几分钟,别关页面)</div>`;
@@ -757,6 +763,27 @@ async function doScan(ep,label){
 }
 function doScanCC(){return doScan('/api/import/claude-code','Claude Code');}
 function doScanCodex(){return doScan('/api/import/codex','Codex');}
+async function loadSyncStatus(){
+  try{const d=await api('/api/sync-status');
+    const cb=$('#autosync');if(cb)cb.checked=d.auto_hours>0;
+    const s=$('#syncline');if(s&&d.last&&d.last.ts)s.textContent=`上次同步 ${d.last.ts}${d.last.ok?' ✓':' ✗'}`;
+  }catch(e){}
+}
+async function doSyncNow(btn){
+  const msg=$('#ccmsg');btn.disabled=true;const o=btn.textContent;btn.textContent='同步中…';
+  msg.innerHTML='<div class="note">增量同步本机对话并提纯…(只处理新增,通常比首扫快)</div>';
+  try{const d=await post('/api/sync',{});
+    const st=d.ok?'background:var(--ok-soft);color:var(--ok)':'background:var(--dng-soft);color:var(--dng)';
+    msg.innerHTML=`<div class="note" style="${st}">${d.ok?'✓':'✗'} ${esc(d.message)}${d.ok&&d.queued?` <a href="#" onclick="show('queue');return false">去待确认队列 →</a>`:''}</div>`;
+    loadSyncStatus();
+  }catch(e){msg.innerHTML=`<div class="note" style="background:var(--dng-soft);color:var(--dng)">✗ ${esc(e.message)}</div>`;}
+  btn.disabled=false;btn.textContent=o;
+}
+async function toggleAutosync(cb){
+  try{const d=await post('/api/autosync',{hours:cb.checked?24:0});
+    const s=$('#syncline');if(s)s.textContent=d.message;
+  }catch(e){cb.checked=!cb.checked;}
+}
 async function doImport(file){
   const msg=$('#imsg');
   msg.innerHTML=`<div class="note">正在导入并提纯 <b>${esc(file.name)}</b>…(可能要几十秒,别关页面)</div>`;

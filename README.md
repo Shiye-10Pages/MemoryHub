@@ -19,8 +19,8 @@
 | **Claude 云端记忆** | 导出内 `memories.json` | `scripts/ingest_claude_memories.py` · **面板一键导入** | 人工确认后入库 | ✅ 已实现 |
 | **ChatGPT(网页 / 桌面)** | 账号级官方导出(`conversations.json`) | `scripts/ingest_chatgpt.py` | 主动读取指令 | ✅ 已实现 |
 | **Codex CLI**(本地) | 本地会话直读(`~/.codex/sessions`) | `scripts/ingest_codex.py` · **面板一键扫描** | 主动读取指令 | ✅ 已实现 |
-| 各端本地历史直读(免导出) | 本地缓存解析 | — | — | 🚧 计划中 |
-| 自动增量同步 | 免手动导出 | — | — | 🚧 计划中 |
+| 桌面端缓存直读(Claude / ChatGPT) | 本地缓存解析 | — | — | ❌ 不做:ChatGPT 桌面端对话本地加密(Keychain 持钥),Claude 桌面端为非稳定 LevelDB 且对话在云端——不破解应用加密,请用上面的**官方导出**通道 |
+| **自动增量同步**(本地源) | 面板后台定时 / 一键 | 「导入」页 ⟳ 立即同步 · 每日自动(可开关) | 增量进待确认队列 | ✅ 已实现 |
 
 > 桌面端与网页端用的是**同一份账号级官方导出**,因此复用同一个连接器。
 

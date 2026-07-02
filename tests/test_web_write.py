@@ -90,6 +90,22 @@ def test_update_apply_refuses_non_git(client):
     assert d["ok"] is False and "git" in d["message"]
 
 
+def test_sync_guards(client):
+    assert client.post("/api/sync", headers=H).status_code == 403      # 写守卫
+    d = client.post("/api/sync", headers=HW).get_json()
+    assert d["ok"] is False and "API Key" in d["message"]              # 无 key → 跳过并提示
+
+
+def test_autosync_toggle_roundtrip(client, env):
+    r = client.post("/api/autosync", headers=HW, json={"hours": 24})
+    assert r.status_code == 200 and r.get_json()["ok"]
+    assert client.get("/api/sync-status", headers=H).get_json()["auto_hours"] == 24
+    assert "MEMORYHUB_AUTOSYNC_HOURS=24" in open(os.path.join(str(env), ".env")).read()
+    client.post("/api/autosync", headers=HW, json={"hours": 0})
+    assert client.get("/api/sync-status", headers=H).get_json()["auto_hours"] == 0
+    assert client.post("/api/autosync", headers=HW, json={"hours": 999}).status_code == 400
+
+
 def test_queue_approve_writes_memory(client, env, monkeypatch):
     monkeypatch.setattr(review_queue, "embed_texts",
                         lambda texts, **kw: [[0.0] * review_queue.DIM for _ in texts])
