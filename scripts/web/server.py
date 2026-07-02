@@ -708,12 +708,17 @@ def api_health():
     lowest = [{"id": r["id"], "type": r["type"], "claim": r["claim"], "confidence": r["confidence"]}
               for r in c.execute("SELECT id,type,claim,confidence FROM memory_item "
                                  "WHERE valid_until IS NULL ORDER BY confidence ASC LIMIT 12")]
+    try:
+        db_mb = round(os.path.getsize(DB) / 1048576, 1)
+    except Exception:
+        db_mb = None
     out = {
         "current": g("SELECT count(*) FROM memory_item WHERE valid_until IS NULL"),
         "superseded": g("SELECT count(*) FROM memory_item WHERE valid_until IS NOT NULL"),
         "low_conf": g("SELECT count(*) FROM memory_item WHERE valid_until IS NULL AND confidence<0.45"),
         "stale": g("SELECT count(*) FROM memory_item WHERE valid_until IS NULL AND review_date<date('now')"),
         "by_status": by_status, "low_by_source": low_src, "lowest": lowest,
+        "db_size_mb": db_mb,
     }
     c.close()
     return jsonify(out)
@@ -1286,6 +1291,41 @@ def api_brand_qr():
     if not os.path.exists(p):
         abort(404)
     return Response(open(p, "rb").read(), mimetype="image/png")
+
+
+@app.route("/api/backup")
+def api_backup():
+    """一键备份:sqlite 在线备份 API 做一致性快照(不裸拷正在写的库)→ zip 下载。
+
+    浏览器 <a download> 无法带自定义头,故只做 Host 白名单(只读、本机)。"""
+    import shutil
+    import tempfile
+    import zipfile
+    from flask import after_this_request, send_file
+    ts = time.strftime("%Y%m%d-%H%M")
+    tmpdir = tempfile.mkdtemp(prefix="mhbackup-")
+    snap = os.path.join(tmpdir, "memory.db")
+    src = sqlite3.connect(DB)
+    dst = sqlite3.connect(snap)
+    with dst:
+        src.backup(dst)
+    dst.close()
+    src.close()
+    zpath = os.path.join(tmpdir, f"memoryhub-backup-{ts}.zip")
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(snap, "memory.db")
+        vp = os.path.join(HUB, "VERSION")
+        if os.path.exists(vp):
+            zf.write(vp, "VERSION")
+
+    @after_this_request
+    def _cleanup(resp):
+        try:
+            shutil.rmtree(tmpdir)   # POSIX:send_file 已持有 fd,删除不影响传输
+        except Exception:
+            pass
+        return resp
+    return send_file(zpath, as_attachment=True, download_name=os.path.basename(zpath))
 
 
 if __name__ == "__main__":

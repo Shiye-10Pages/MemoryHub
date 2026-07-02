@@ -841,11 +841,17 @@ async function renderSettings(){
     </div>
   </div>
   <div class="panel">
+    <h3>数据 · 备份</h3>
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px;line-height:1.7">你的全部记忆都在本机 <code>memory.db</code>(<span id="dbsz">…</span>),不在任何云端——所以<b>备份靠你自己</b>。建议定期下载;恢复 = 用备份包里的 <code>memory.db</code> 替换安装目录同名文件,再重启面板。</div>
+    <a class="btn pri" style="display:inline-flex;align-items:center;text-decoration:none" href="/api/backup" download>⬇ 下载备份(zip)</a>
+  </div>
+  <div class="panel">
     <h3>接入 AI(让它主动读取你的记忆)</h3>
     <div style="color:var(--mut);font-size:13px;margin-bottom:8px">复制即用:① 给 Claude 桌面端装 MCP;② 或命令行一键装;③ 把「主动读取」指令贴进 Claude Project / ChatGPT 自定义指令。</div>
     <div id="conn"><div class="empty">加载中…</div></div>
   </div>`;
   loadCfg();
+  api('/api/health').then(h=>{const e=$('#dbsz');if(e)e.textContent=h.db_size_mb!=null?h.db_size_mb+' MB':'—';}).catch(()=>{const e=$('#dbsz');if(e)e.textContent='—';});
   try{const u=await api('/api/update-check');
     $('#ver').textContent=u.current||'?';
     if(u.update_available){$('#upd').innerHTML=` · <span style="color:var(--dng)">发现新版 ${esc(u.latest)}</span> <button class="btn pri" style="height:28px;padding:0 12px;margin-left:4px" onclick="doUpdate(this)">立即更新</button> <a href="${esc(u.url||'#')}" target="_blank" rel="noopener" style="font-size:12px;color:var(--mut)">更新日志</a>`;const p=$('#upip');if(p)p.style.display='inline-block';}

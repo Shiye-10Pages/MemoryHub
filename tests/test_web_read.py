@@ -1,7 +1,10 @@
-"""只读端点:首页、stats、Host 白名单、更新检查(含缓存)、接入信息、空库地图。"""
+"""只读端点:首页、stats、Host 白名单、更新检查(含缓存)、接入信息、空库地图、备份。"""
+import io
 import json
+import sqlite3
+import zipfile
 
-from conftest import H
+from conftest import H, conn
 
 
 def test_index_serves_brand_symbol(client):
@@ -60,6 +63,27 @@ def test_connect_info_absolute_paths(client):
     cmd = d["mcp_json"]["mcpServers"]["memoryhub"]["command"]
     assert cmd.startswith("/") and all(a.startswith("/") for a in args)
     assert "recall_memory" in d["instruction"]
+
+
+def test_backup_zip_contains_consistent_db(client, env, tmp_path):
+    c = conn(env)
+    c.execute("INSERT INTO memory_item(id,type,claim,evidence,sources,confidence,valid_from,status) "
+              "VALUES('b1','事实','备份测试条目','证据','[]',0.9,date('now'),'已确认')")
+    c.commit(); c.close()
+    r = client.get("/api/backup", headers=H)
+    assert r.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(r.data))
+    assert set(zf.namelist()) == {"memory.db", "VERSION"}
+    out = tmp_path / "restored.db"
+    out.write_bytes(zf.read("memory.db"))
+    rc = sqlite3.connect(str(out))
+    assert rc.execute("SELECT count(*) FROM memory_item").fetchone()[0] == 1   # 快照可开、数据在
+    rc.close()
+
+
+def test_health_reports_db_size(client):
+    d = client.get("/api/health", headers=H).get_json()
+    assert isinstance(d["db_size_mb"], (int, float)) and d["db_size_mb"] >= 0
 
 
 def test_map_empty_db_no_500(client):

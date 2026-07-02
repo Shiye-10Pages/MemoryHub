@@ -35,6 +35,7 @@ scripts/run_web.sh        # 启动本地面板 → http://127.0.0.1:7788
 之后**双击启动**即可:macOS `打开记忆面板.command`、Windows `打开记忆面板.bat`(首次会自动初始化)。首次打开面板顶部会给你三步引导:① 配 API Key → ② 导入记忆 → ③ 在「待确认」里逐条批准。
 
 > macOS 首次双击若被拦(“来自身份不明的开发者”),**右键 → 打开**一次即可;或到 系统设置 → 隐私与安全性 →“仍要打开”。
+> Windows 的 `打开记忆面板.bat` 尚未在真机验证,遇到问题请提 Issue。
 > 想要**无终端窗口 + 品牌图标**的 App:`osacompile -o MemoryHub.app -e 'do shell script "bash \"'"$PWD"'/打开记忆面板.command\""'`,再在其“显示简介(⌘I)”里把 `assets/icon-dark.png` 拖到左上角图标上。品牌图标(深/浅两版 + `MemoryHub.icns`)在 `assets/`,可用 `python3 assets/make_icon.py` 重新生成。
 
 ### 配 API Key(在面板里,不用改文件)
@@ -67,6 +68,9 @@ claude mcp add memoryhub -- /path/to/.venv/bin/python /path/to/MemoryHub/scripts
 面板每天一次向 GitHub 查是否有新版本(**只拉版本号,无任何遥测**);有新版会在「设置」里红字提示 + 顶部小红点。离线则静默跳过。
 
 发现新版时点**「立即更新」**即可:面板自己 `git pull` 拉新代码、按需补装依赖、然后**自动重启**生效——全程不碰你的本地数据(记忆库、`.env` 均在 `.gitignore` 里,`git pull` 不会动)。若你本地改过代码(未提交)或不是 `git clone` 装的,会中止并提示手动更新,绝不覆盖你的改动。
+
+## 数据备份
+你的全部记忆只存在本机 `memory.db`,**不在任何云端**——备份靠你自己。面板 **「设置 → 数据 · 备份」** 一键下载 zip(内含一致性快照的 `memory.db` + 版本号);恢复时用包里的 `memory.db` 替换安装目录同名文件、重启面板即可。建议每次大批量导入后备份一次。
 
 ## 扩展
 想接自己的数据源?见 `docs/extending.md` 与 `examples/ingest_custom_jsonl.py`;保真契约见 `CONTRACT.md`。
