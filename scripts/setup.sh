@@ -12,8 +12,29 @@ fi
 cd "$HUB"
 "$PYTHON_BIN" -m venv .venv
 . "$HUB/.venv/bin/activate"
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+
+# pip 安装带重试 + 备用源兜底：镜像源瞬时抽风(如 numpy "from versions: none")时自愈
+PIP_MIRRORS=(
+  "https://pypi.tuna.tsinghua.edu.cn/simple"
+  "https://mirrors.aliyun.com/pypi/simple"
+  "https://pypi.org/simple"
+)
+pip_install() {  # 参数即 pip install 的参数(如 --upgrade pip / -r requirements.txt)
+  local i url
+  for i in "${!PIP_MIRRORS[@]}"; do
+    url="${PIP_MIRRORS[$i]}"
+    echo "→ pip 源 $((i + 1))/${#PIP_MIRRORS[@]}: $url"
+    if python -m pip install --retries 5 --timeout 30 -i "$url" "$@"; then
+      return 0
+    fi
+    echo "⚠ 源失败，换下一个: $url" >&2
+  done
+  echo "✗ 所有镜像源均失败: pip install $*" >&2
+  return 1
+}
+
+pip_install --upgrade pip
+pip_install -r requirements.txt
 
 mkdir -p logs imports staging raw/claude-code raw/claude-memory raw/claude-web raw/chatgpt
 touch logs/.gitkeep imports/.gitkeep staging/.gitkeep raw/.gitkeep \

@@ -1,7 +1,37 @@
 #!/bin/bash
 # 双击打开 MemoryHub 本地记忆面板(首次会自动初始化环境)
+# 启动器可放在任意路径(桌面/程序坞等),按以下顺序定位 MemoryHub 安装目录:
+#   1) 环境变量 MEMORYHUB_HOME
+#   2) 启动器自身所在目录(启动器仍放在仓库内时)
+#   3) 记录文件 ~/.memoryhub_home(上次成功定位时写入)
+#   4) 默认位置 ~/MemoryHub
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-HUB="${MEMORYHUB_HOME:-$SCRIPT_DIR}"
+POINTER="$HOME/.memoryhub_home"
+
+is_hub() { [ -f "$1/scripts/web/server.py" ]; }
+
+HUB=""
+for cand in \
+  "${MEMORYHUB_HOME:-}" \
+  "$SCRIPT_DIR" \
+  "$([ -f "$POINTER" ] && cat "$POINTER")" \
+  "$HOME/MemoryHub"; do
+  if [ -n "$cand" ] && is_hub "$cand"; then HUB="$cand"; break; fi
+done
+
+if [ -z "$HUB" ]; then
+  echo "找不到 MemoryHub 安装目录。"
+  echo "解决办法(任选其一):"
+  echo "  · 把启动器放回 MemoryHub 目录内再双击"
+  echo "  · 运行: echo /你的/MemoryHub路径 > ~/.memoryhub_home"
+  echo "  · 或设置环境变量 MEMORYHUB_HOME 后重试"
+  read -r
+  exit 1
+fi
+
+# 记住这次定位到的目录,方便下次从任意路径启动
+printf '%s\n' "$HUB" > "$POINTER" 2>/dev/null || true
+
 cd "$HUB" || exit 1
 
 # 首次:没有 .venv 就自动跑 setup(建虚拟环境 + 装依赖 + 建库)
