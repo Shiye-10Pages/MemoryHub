@@ -43,12 +43,15 @@ def send(obj):
 
 def fmt(hits):
     if not hits:
-        return "（未召回到相关记忆）"
+        return "（未召回到相关记忆——库里可能没有,或相关度都太低。请勿据此臆断。）"
     lines = []
     for i, h in enumerate(hits, 1):
         ctx = (f"情境: {h.get('context')}\n" if h.get("context") else "")
+        # 待核标记:未经人工确认的记忆不得被当成权威事实(逐字证据只保证"确实说过",不保证"对/现行")
+        tag = "" if h.get("status") == "已确认" else "[待核·未经人工确认] "
+        meta = f"相关度 {h.get('cosine')}, 日期 {h.get('valid_from') or '?'}, 来源 {','.join(h['sources'])}"
         lines.append(
-            f"[{i}] 【{h['type']}】(置信 {h['confidence']}, 来源 {','.join(h['sources'])})\n"
+            f"[{i}] {tag}【{h['type']}】({meta})\n"
             f"{ctx}"
             f"结论: {h['claim']}\n"
             f"证据(逐字): {h['evidence']}")
