@@ -15,6 +15,19 @@ DEFAULT_DB = os.path.join(HUB, "memory.db")
 SCHEMA = os.path.join(HERE, "schema.sql")
 
 
+def ensure_migrations(con):
+    """把历次 migrate 的加列操作收敛到这里,幂等。新建库(schema 已含)会全部跳过,
+    老库(schema.sql 是 CREATE TABLE IF NOT EXISTS,不会补列)在此补齐,避免 gate 写 context 崩。"""
+    cols = {r[1] for r in con.execute("PRAGMA table_info(memory_item)")}
+    added = []
+    if "context" not in cols:
+        con.execute("ALTER TABLE memory_item ADD COLUMN context TEXT")
+        added.append("memory_item.context")
+    if added:
+        con.commit()
+        print("    补列:", ", ".join(added))
+
+
 def main():
     db = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DB
     with open(SCHEMA, encoding="utf-8") as f:
@@ -24,6 +37,7 @@ def main():
     try:
         con.executescript(ddl)
         con.commit()
+        ensure_migrations(con)   # 老库补列(context 等),幂等;新库已含则跳过
 
         tables = [r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table','view') "

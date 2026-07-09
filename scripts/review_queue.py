@@ -62,7 +62,8 @@ def approve(con, cid, c):
 
 def main():
     con = sqlite3.connect(DB)
-    rows = con.execute("SELECT id, candidate FROM human_queue ORDER BY id").fetchall()
+    rows = con.execute("SELECT id, candidate FROM human_queue "
+                       "WHERE status='pending' OR status IS NULL ORDER BY id").fetchall()
     if not rows:
         print("队列为空。")
         return
@@ -93,7 +94,8 @@ def main():
             st["approved"] += 1
         elif i in reject_idx:
             rej_f.write(cand + "\n")
-            con.execute("DELETE FROM human_queue WHERE id=?", (qid,))
+            # 不删行:改状态留档。行的 q_ id 仍在 gate 的 seen 里 → 被拒候选不会每晚复活(审查 P0-B)。
+            con.execute("UPDATE human_queue SET status='rejected', resolved_at=datetime('now') WHERE id=?", (qid,))
             st["rejected"] += 1
     rej_f.close()
     con.commit()

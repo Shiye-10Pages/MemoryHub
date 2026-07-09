@@ -89,9 +89,23 @@ def high_impact(it):
     return any(norm(k) in blob for k in BUSINESS_KW)
 
 
+def rotate_candidates():
+    """成功消费后把候选文件轮转成 candidates.<ts>.done:避免下次全量重解析 + 采集器每晚
+    重复追加导致的重复嵌入浪费(审查 P2-1)。崩溃时不轮转,保留候选可断点重跑。"""
+    if not os.path.exists(CAND):
+        return
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    try:
+        os.replace(CAND, CAND.replace("candidates.jsonl", f"candidates.{ts}.done"))
+    except Exception as e:
+        print(f"候选轮转失败(不影响入库): {str(e)[:80]}")
+
+
 def load_candidates():
     """精确去重 → [{item, sources, n}]。"""
     by_id = {}
+    if not os.path.exists(CAND):        # 已被上一轮成功消费并轮转 → 无新候选
+        return []
     for line in open(CAND, encoding="utf-8"):
         it = json.loads(line)
         cid = claim_id(it.get("claim", ""))
@@ -201,6 +215,7 @@ def main():
     groups = [g for g in groups if claim_id(g["item"]["claim"]) not in seen]
     print(f"精确去重: {before} 唯一 claim;增量过滤后新候选 {len(groups)}(跳过 {before - len(groups)})")
     if not groups:
+        rotate_candidates()   # 全部已 seen 也算消费完,轮转掉,免下次重复解析(审查 P2-1)
         print("无新候选,结束。")
         return
     print("嵌入中…")
@@ -314,6 +329,7 @@ def main():
 
     con.commit()
     con.close()
+    rotate_candidates()   # 成功入库后轮转候选文件(见 rotate_candidates 说明)
     print("gate 完成: " + json.dumps(st, ensure_ascii=False))
 
 

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS memory_item (
     id                  TEXT PRIMARY KEY,
     type                TEXT NOT NULL,        -- 方法论|决策|经验|SOP|认知|反馈|事实|偏好|关系
     claim               TEXT NOT NULL,        -- 一句话结论(自包含)
+    context             TEXT,                 -- 情境锚(在什么局面/关于什么主题下成立)
     evidence            TEXT NOT NULL,        -- 逐字原文证据(缺则不得入库)
     sources             TEXT NOT NULL,        -- json array: [{source,conv_id,uri,ts}]
     confidence          REAL,                 -- 复合置信度 0..1
