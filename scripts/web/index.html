@@ -414,14 +414,14 @@ async function qAct(qid,act,btn){btn.disabled=true;btn.textContent='处理中…
 
 // ---- 帮助 ----
 function renderHelp(){
-  $('#view-help').innerHTML=`<div class="head"><h1>帮助 · 使用手册</h1><p>完整版见项目里的 <code>记忆面板使用手册.md</code>。</p></div>
+  $('#view-help').innerHTML=`<div class="head"><h1>帮助 · 使用手册</h1><p>更多说明见项目 <code>README.md</code>。</p></div>
   <div class="help">
   <div class="note">核心理念:每条记忆都带<b>逐字证据</b>和<b>来源</b>——它不是 AI 编的。决策/写内容前先来"召回",把它当作问过去的自己。</div>
   <h2>📅 日常使用流程</h2>
   <ul>
   <li><b>每天</b>:打开面板 → 扫一眼仪表盘 → 若"待确认 &gt; 0"就去队列逐条处理(财务/方向类亲自核证据)。</li>
   <li><b>用记忆(核心)</b>:做决策、写内容前先<b>召回</b>——面板"召回"页 / 任意 Claude 会话直接问业务问题(自动调 <code>recall_memory</code>) / 命令行 <code>recall.py "问题"</code>。把它当"问过去的自己"。</li>
-  <li><b>自动生长</b>:每晚 3:30 自动采集+提纯,你<b>什么都不用做</b>;偶尔看仪表盘"夜间任务"确认正常。</li>
+  <li><b>自动生长</b>:在"导入"页勾选<b>"每天自动增量同步"</b>,面板就会定时采集+提纯本机对话(需已配 key);开发者本机另可用 launchd 夜跑,但新装机器默认没有——用面板的自动同步即可。</li>
   <li><b>扩源</b>:想纳入 ChatGPT/claude.ai 时,导出数据放进 <code>imports/</code> → 跑对应连接器。</li>
   <li><b>维护</b>:每周清一次待确认队列即可;<code>vault/</code> 有 Git,历史可追溯。</li>
   </ul>

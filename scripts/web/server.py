@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """MemoryHub · 本地记忆面板(P1 只读 + 队列审批)
 
-Flask,绑 127.0.0.1:7788,纯本地、无云。复用 recall/review_queue/memory.db。
+Flask,绑 127.0.0.1:7788。面板服务在本机;但提纯/嵌入/召回会调用你所配的云端 LLM
+(默认阿里云 DashScope)——数据边界见 README「数据去哪儿了」。复用 recall/review_queue/memory.db。
 安全(评审落实):
 - debug=False、显式 host=127.0.0.1。
 - 全请求校验 Host 头白名单(防 DNS rebinding);写端点再要求自定义头 X-MemoryHub:1。
@@ -70,8 +71,8 @@ def search_ids(c, q):
     if len(q) >= 3:
         try:
             ids = [r[0] for r in c.execute(
-                "SELECT mi.id FROM memory_fts f JOIN memory_item mi ON mi.rowid=f.rowid "
-                "WHERE f MATCH ?", (fts_match(q),)).fetchall()]
+                "SELECT mi.id FROM memory_fts JOIN memory_item mi ON mi.rowid=memory_fts.rowid "
+                "WHERE memory_fts MATCH ?", (fts_match(q),)).fetchall()]
         except Exception:
             ids = []
     like = [r[0] for r in c.execute(
@@ -137,7 +138,7 @@ def api_stats():
         "memory_item": g("SELECT count(*) FROM memory_item WHERE valid_until IS NULL"),
         "memory_total": g("SELECT count(*) FROM memory_item"),
         "raw_event": g("SELECT count(*) FROM raw_event"),
-        "queue": g("SELECT count(*) FROM human_queue"),
+        "queue": g("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL"),
         "by_type": by_type, "by_status": by_status, "by_source": src,
         "raw_sources": raw, "growth": growth, "nightly": nightly_status(),
     }
@@ -279,7 +280,8 @@ def api_recall():
 @app.route("/api/queue")
 def api_queue():
     c = db()
-    rows = c.execute("SELECT id,candidate,reason,created_at FROM human_queue ORDER BY created_at").fetchall()
+    rows = c.execute("SELECT id,candidate,reason,created_at FROM human_queue "
+                     "WHERE status='pending' OR status IS NULL ORDER BY created_at").fetchall()
     out = []
     for r in rows:
         cand = json.loads(r["candidate"])
@@ -762,7 +764,9 @@ def api_queue_action(qid):
     require_write()
     action = (request.get_json(force=True, silent=True) or {}).get("action")
     c = db()
-    row = c.execute("SELECT candidate FROM human_queue WHERE id=?", (qid,)).fetchone()
+    # 只对仍待处理的行动作:防对已 rejected/approved 的陈旧 qid 再 POST approve 把它复活
+    row = c.execute("SELECT candidate FROM human_queue WHERE id=? "
+                    "AND (status='pending' OR status IS NULL)", (qid,)).fetchone()
     if not row:
         c.close(); abort(404)
     cand = json.loads(row["candidate"])
@@ -778,7 +782,8 @@ def api_queue_action(qid):
         os.makedirs(os.path.join(HUB, "staging"), exist_ok=True)
         with open(os.path.join(HUB, "staging", "rejected.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(cand, ensure_ascii=False) + "\n")
-        c.execute("DELETE FROM human_queue WHERE id=?", (qid,))
+        # 不删行:改状态留档。行的 q_ id 留在 gate 的 seen 里 → 被拒候选不会每晚复活(审查 P0-B)。
+        c.execute("UPDATE human_queue SET status='rejected', resolved_at=datetime('now') WHERE id=?", (qid,))
         c.commit()
     elif action in ("keep_this", "keep_other", "coexist"):   # 矛盾裁决:取代败者 / 都保留
         import datetime
@@ -964,7 +969,10 @@ def api_queue_bulk():
                 rej.write(json.dumps(cand, ensure_ascii=False) + "\n")
         except Exception:
             continue
-        c.execute("DELETE FROM human_queue WHERE id=?", (qid,))
+        if action == "reject":     # 拒绝改状态留档,不删行(seen 保留 → 不复活,审查 P0-B)
+            c.execute("UPDATE human_queue SET status='rejected', resolved_at=datetime('now') WHERE id=?", (qid,))
+        else:                      # approve/downgrade 的 claim 已进 memory_item,seen 自会拦,删行安全
+            c.execute("DELETE FROM human_queue WHERE id=?", (qid,))
         done += 1
     if rej:
         rej.close()
@@ -1225,7 +1233,7 @@ def api_import():
     except Exception as e:
         return jsonify({"ok": False, "message": f"处理失败:{e}"}), 500
     c = db()
-    qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+    qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     c.close()
     tail = (gr.stdout or gr.stderr or "").strip().splitlines()
     src = "、".join(routed)
@@ -1255,7 +1263,7 @@ def api_import_claude_code():
     except Exception as e:
         return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
     c = db()
-    qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+    qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='claude-code'").fetchone()[0]
     c.close()
     tail = (gr.stdout or gr.stderr or "").strip().splitlines()
@@ -1284,7 +1292,7 @@ def api_import_codex():
     except Exception as e:
         return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
     c = db()
-    qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+    qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='codex'").fetchone()[0]
     c.close()
     tail = (gr.stdout or gr.stderr or "").strip().splitlines()
@@ -1315,7 +1323,7 @@ def _sync_pipeline():
         subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
                        cwd=HUB, capture_output=True, text=True, timeout=1800)
         c = db()
-        qn = c.execute("SELECT count(*) FROM human_queue").fetchone()[0]
+        qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
         rn = c.execute("SELECT count(*) FROM raw_event").fetchone()[0]
         c.close()
         res = {"ok": True, "queued": qn,
