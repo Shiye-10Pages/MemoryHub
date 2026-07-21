@@ -32,7 +32,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from embed import embed_texts, DIM, MODEL  # noqa: E402
+from embed import embed_texts, DIM, MODEL, pack_embedding  # noqa: E402
 from distill import call_qwen, parse        # noqa: E402  复用 DashScope 调用
 
 HUB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +45,28 @@ LOW_CONF = 0.45
 JUDGE_MODEL = "qwen3-max"
 JUDGE_BATCH = 10
 REL_OK = ("同义", "演化", "矛盾", "相近")
+
+# 契约只认这 9 类(CONTRACT.md);LLM 常自造类型(行动/风险/定价…),写库前归一,防契约被架空。
+TYPES = {"方法论", "决策", "经验", "SOP", "认知", "反馈", "事实", "偏好", "关系"}
+TYPE_REMAP = {
+    "行动": "SOP", "话术": "SOP", "规则": "SOP", "技术规范": "SOP",
+    "纪律": "SOP", "护栏": "SOP", "安全约束": "SOP",
+    "风险": "认知", "原则": "认知", "问题": "认知", "安全": "认知", "机会": "认知",
+    "痛点": "认知", "预测": "认知", "产品模型": "认知", "技术": "认知", "假设": "认知",
+    "影响": "决策", "目标": "决策", "定位": "决策", "策略": "决策", "定价": "决策",
+    "内容策略": "决策", "需求": "决策", "转化策略": "决策", "方向": "决策",
+    "功能": "事实", "产品": "事实", "bug": "事实", "错误": "事实", "资产": "事实",
+    "人设": "偏好", "角色定义": "偏好", "角色定位": "偏好",
+    "避坑": "经验",
+}
+
+
+def normalize_type(t):
+    """把 LLM 自造的野生类型归一到契约 9 类;未知兜底为「认知」(最泛,不丢条)。"""
+    t = (t or "").strip()
+    if t in TYPES:
+        return t
+    return TYPE_REMAP.get(t, "认知")
 BUSINESS_KW = ["定价", "价格", "收入", "营收", "销售", "客单", "单价", "商业模式", "变现",
                "方向", "放弃", "战略", "融资", "招聘", "离职", "找工作", "课程", "付费", "订阅价", "回去找工作"]
 
@@ -72,6 +94,28 @@ def unit(v):
     return v / n if n else v
 
 
+# source_reliability 按来源分级(CONTRACT 置信阶梯:第一方结构化 > 导出文件 > 网页抓取)。
+SR_BY_SOURCE = {
+    "口播稿": 0.80, "koushu": 0.80,          # 十页本人逐字口播
+    "claude-code": 0.75, "codex": 0.75,      # 第一方本地 transcript
+    "roundtable": 0.72,                       # 自建策展记忆
+    "claude-memory": 0.70, "evolution": 0.70,
+    "chatgpt": 0.60, "claude-web": 0.60,      # 网页账号导出
+    "material:promoted": 0.60,                # 素材人工晋升
+}
+SR_DEFAULT = 0.65
+
+
+def sr_for_source(src_name):
+    return SR_BY_SOURCE.get(src_name, SR_DEFAULT)
+
+
+def em_for_extractor(extractor):
+    """extraction_method:规则/结构化直采 > LLM 推断。"""
+    e = (extractor or "").strip().lower()
+    return 0.90 if e in ("", "rule", "规则") else 0.75   # 空=直采连接器;有模型名=LLM 抽取
+
+
 def confidence(merged, ts=None, sr=0.7, em=0.8):
     # 质量分 = 源可信 × 抽取法 × 证据 × 跨源印证。【刻意不含时效衰减】:
     # freshness 只回答"还新不新",不该决定一条洞见值不值得保留、也不该压低它的质量分
@@ -83,10 +127,12 @@ def confidence(merged, ts=None, sr=0.7, em=0.8):
 
 
 def high_impact(it):
+    # 需 impact=true 且命中【≥2 个不同】业务词才算高影响。单个高频词(方向/课程/付费)
+    # 偶然出现不再把普通候选刷进人工闸(审查 P1-7:high_impact 曾积压 672 条)。
     if not it.get("impact"):
         return False
     blob = norm(it.get("claim", "")) + norm(it.get("evidence", ""))
-    return any(norm(k) in blob for k in BUSINESS_KW)
+    return sum(1 for k in BUSINESS_KW if norm(k) in blob) >= 2
 
 
 def rotate_candidates():
@@ -167,7 +213,7 @@ def insert_memory(con, cid, it, srcs, conf, vfrom, status, links, vec, valid_unt
          json.dumps(srcs, ensure_ascii=False), round(conf, 3), vfrom or None,
          valid_until, status, "create"))
     con.execute("INSERT OR IGNORE INTO memory_embedding(memory_item_id,model,dim,vec) VALUES(?,?,?,?)",
-                (cid, MODEL, DIM, struct.pack(f"<{DIM}f", *vec)))
+                (cid,) + pack_embedding(vec))
 
 
 def append_link(con, item_id, link):
@@ -245,11 +291,15 @@ def main():
 
     for gi, g in enumerate(groups):
         it = g["item"]
+        it["type"] = normalize_type(it.get("type"))   # 类型受控闸:归一到契约 9 类
         srcs = uniq_sources(g["sources"])
         merged = g["n"]
         ts = max((s.get("ts") or "" for s in srcs), default="")
         vfrom = ts[:10]
-        conf = confidence(merged, ts, it.get("sr", 0.7), it.get("em", 0.8))
+        # sr 按来源分级、em 按抽取法分级(不再恒 0.7/0.8),让 confidence 恢复区分度(审查 P1-2)
+        sr = it.get("sr") or sr_for_source(srcs[0].get("source") if srcs else None)
+        em = it.get("em") or em_for_extractor(it.get("extractor_model"))
+        conf = confidence(merged, ts, sr, em)
         cid = claim_id(it["claim"])
         v = unit(vecs[gi])
 

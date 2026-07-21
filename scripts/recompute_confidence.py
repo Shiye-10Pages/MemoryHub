@@ -22,9 +22,11 @@ import sys
 HUB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(HUB, "memory.db")
 
-SR_DEFAULT = 0.7
-EM_DEFAULT = 0.8
-HUMAN_BONUS = 1.25          # 与 review_queue.approve 一致
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gate import sr_for_source  # noqa: E402  单一事实源:与写库闸同一套来源分级
+
+EM_DEFAULT = 0.8               # 存量无逐条 extractor,em 用中性默认(诚实边界)
+HUMAN_BONUS = 1.25             # 与 review_queue.approve 一致
 HUMAN_STATUSES = {"已应用", "已确认"}   # 兼容规整前后命名
 
 
@@ -41,9 +43,9 @@ def uniq_sources(sources):
     return max(1, n)
 
 
-def quality(merged, status):
+def quality(merged, status, sr):
     cross = 1.0 + min(0.25, 0.05 * (merged - 1))
-    q = SR_DEFAULT * EM_DEFAULT * 1.0 * cross
+    q = sr * EM_DEFAULT * 1.0 * cross           # sr 按来源分级(不再恒 0.7)
     if status in HUMAN_STATUSES:
         q *= HUMAN_BONUS
     return round(max(0.0, min(1.0, q)), 3)
@@ -51,7 +53,8 @@ def quality(merged, status):
 
 def main():
     dry = "--dry-run" in sys.argv
-    con = sqlite3.connect(DB, timeout=30.0)
+    db = sys.argv[sys.argv.index("--db") + 1] if "--db" in sys.argv else DB
+    con = sqlite3.connect(db, timeout=30.0)
     rows = con.execute("SELECT id, status, sources, confidence FROM memory_item").fetchall()
     changed = 0
     lo_before = lo_after = 0
@@ -60,7 +63,8 @@ def main():
             srcs = json.loads(sources or "[]")
         except Exception:
             srcs = []
-        newc = quality(uniq_sources(srcs), status)
+        src_name = next((s.get("source") for s in srcs if isinstance(s, dict) and s.get("source")), None)
+        newc = quality(uniq_sources(srcs), status, sr_for_source(src_name))
         oldc = oldc if oldc is not None else 0.0
         if oldc < 0.45:
             lo_before += 1
