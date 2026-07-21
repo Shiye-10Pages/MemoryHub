@@ -90,6 +90,62 @@ def test_fts_alias_fixed():
     assert raised, "别名 `f MATCH` 居然没报错——SQLite 行为变了,复查 recall 的 FTS 写法"
 
 
+# ---- T2.3:类型受控闸,归一到契约 9 类 ----
+def test_type_gate_normalizes():
+    import gate
+    assert gate.normalize_type("决策") == "决策"          # 合法类原样
+    assert gate.normalize_type("行动") == "SOP"            # 常见野生 → 映射
+    assert gate.normalize_type("定价") == "决策"
+    assert gate.normalize_type("角色定位") == "偏好"
+    assert gate.normalize_type("从未见过的类型") == "认知"  # 未知兜底
+    assert gate.normalize_type("") == "认知"
+    assert gate.normalize_type(None) == "认知"
+    # migrate v7 在临时库上把野生类型改成 9 类之一,且幂等
+    import sqlite3
+    db = _fresh_db()
+    con = sqlite3.connect(db)
+    for i, t in enumerate(["行动", "风险", "决策"]):
+        con.execute("INSERT INTO memory_item(id,type,claim,evidence,sources,valid_from) "
+                    "VALUES(?,?,?,?,?,?)", (f"t{i}", t, f"c{i}", "e", "[]", "2026-07-01"))
+    con.commit(); con.close()
+    os.system(f'python3 "{os.path.join(SCRIPTS, "migrate_memory_v7.py")}" --db "{db}" >/dev/null 2>&1')
+    con = sqlite3.connect(db)
+    types = {r[0] for r in con.execute("SELECT DISTINCT type FROM memory_item")}
+    con.close()
+    assert types <= gate.TYPES, f"迁移后仍有野生类型: {types - gate.TYPES}"
+
+
+# ---- T2.4:置信度 sr 按来源分级、em 分规则/LLM(不再恒定) ----
+def test_confidence_varies_by_source():
+    import gate
+    assert gate.sr_for_source("claude-code") > gate.sr_for_source("chatgpt")   # 第一方 > 网页导出
+    assert gate.sr_for_source("口播稿") > gate.sr_for_source("chatgpt")
+    assert gate.em_for_extractor("rule") > gate.em_for_extractor("qwen3-max")   # 规则 > LLM
+    # 不同来源的候选,confidence 不同(不再全 0.56)
+    c_cc = gate.confidence(1, sr=gate.sr_for_source("claude-code"), em=gate.em_for_extractor("qwen3-max"))
+    c_gpt = gate.confidence(1, sr=gate.sr_for_source("chatgpt"), em=gate.em_for_extractor("qwen3-max"))
+    assert c_cc != c_gpt, "不同来源置信度应不同"
+
+
+# ---- T2.5:人工闸需命中 ≥2 个业务词,单个高频词不再刷爆队列 ----
+def test_high_impact_needs_two_keywords():
+    import gate
+    assert gate.high_impact({"impact": True, "claim": "课程定价定 3980", "evidence": ""}) is True   # 课程+定价+价格 ≥2
+    assert gate.high_impact({"impact": True, "claim": "这个方向值得做", "evidence": ""}) is False   # 仅"方向"1 词
+    assert gate.high_impact({"impact": False, "claim": "课程定价融资", "evidence": ""}) is False     # impact=false 直接否
+
+
+# ---- T2.7:pack_embedding 按向量实际长度打包(切 provider 不崩/不存错维) ----
+def test_pack_embedding_by_len():
+    import struct
+    import embed
+    for d in (4, 8, 1536):
+        model, dim, blob = embed.pack_embedding([0.25] * d)
+        assert dim == d, f"dim 应={d},得 {dim}(用了缓存 DIM?)"
+        assert len(blob) == d * 4, "blob 长度与向量维度不符"
+        assert struct.unpack(f"<{d}f", blob)[0] == 0.25
+
+
 # ---- distill 溯源闸:evidence 必须是输入逐字子串 ----
 def test_evidence_substring_gate():
     window = "用户说:该账号定位应聚焦单一主轴,不要多方向并行。助手回复……"
