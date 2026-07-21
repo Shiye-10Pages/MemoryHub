@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sqlite3
 
-from embed import embed_texts, DIM, MODEL  # noqa: E402
+from embed import embed_texts, DIM, MODEL, pack_embedding  # noqa: E402
 
 HUB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(HUB, "memory.db")
@@ -57,7 +57,7 @@ def approve(con, cid, c):
          json.dumps(c.get("sources", []), ensure_ascii=False), conf, (ts[:10] or None),
          "已确认", "human_approved"))
     con.execute("INSERT OR IGNORE INTO memory_embedding(memory_item_id,model,dim,vec) VALUES(?,?,?,?)",
-                (cid, MODEL, DIM, struct.pack(f"<{DIM}f", *vec)))
+                (cid,) + pack_embedding(vec))
 
 
 def main():
