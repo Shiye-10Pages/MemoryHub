@@ -9,10 +9,22 @@ PY="${MEMORYHUB_PYTHON:-$HUB/.venv/bin/python}"
 if [ ! -x "$PY" ]; then
   PY="$(command -v python3)"
 fi
-mkdir -p "$HUB/logs"
+mkdir -p "$HUB/logs" "$HUB/staging"
 LOG="$HUB/logs/nightly-$(date +%Y%m%d-%H%M%S).log"
 FAILS=0
 LAST_FAIL=""
+
+# 跨进程管线互斥(与面板导入/同步共用 mkdir 原子锁;mac 无 flock 命令)。拿不到锁则本次跳过。
+LOCKDIR="$HUB/staging/pipeline.lock.d"
+LOCK_MTIME="$(stat -f %m "$LOCKDIR" 2>/dev/null || stat -c %Y "$LOCKDIR" 2>/dev/null || echo 0)"
+if [ -d "$LOCKDIR" ] && [ "$(( $(date +%s) - LOCK_MTIME ))" -gt 7200 ]; then
+  rmdir "$LOCKDIR" 2>/dev/null   # 陈旧锁(>2h,进程被杀没清理)自愈
+fi
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  echo "$(date) 另一采集/同步在跑,本次夜跑跳过" >> "$LOG"
+  exit 0
+fi
+trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT
 
 # 记录每步退出码;非零则计数 + 记住最后失败步(不 set -e:后续步仍尝试,但失败会被上报)
 run() { echo ">>> $*"; "$@"; local rc=$?; echo "<<< exit=$rc";

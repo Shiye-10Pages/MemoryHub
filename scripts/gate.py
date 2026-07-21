@@ -290,6 +290,8 @@ def main():
           "queued_impact": 0, "queued_review": 0, "queued_contra": 0, "lowconf_skip": 0}
 
     for gi, g in enumerate(groups):
+        con.commit()   # 短事务:提交上一条的写入、释放写锁,让 LLM 判别(下面 judge_pairs)不在写事务内
+                       # 进行(审查 P1-1);gate 幂等,崩溃时已提交部分可断点续跑。
         it = g["item"]
         it["type"] = normalize_type(it.get("type"))   # 类型受控闸:归一到契约 9 类
         srcs = uniq_sources(g["sources"])
