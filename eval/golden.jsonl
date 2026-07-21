@@ -1,0 +1,16 @@
+{"qid":"G001","category":"决策","query":"圆桌/双模型交叉验证的机制最后决定怎么做?","expect_substr":["并行"],"topk":8,"note":"审查 D4,决策链应召回;并行+全历史结论"}
+{"qid":"G002","category":"决策","query":"课程定价定多少?","expect_substr":["3980"],"topk":8,"note":"审查 D5,库内含 3980 报价"}
+{"qid":"G003","category":"偏好","query":"我做内容账号的定位原则是聚焦还是多方向并行?","expect_ids":["f5ee562c3165360b"],"topk":8,"note":"已确认基线题(聚焦单一主轴)"}
+{"qid":"G004","category":"事实","query":"Claude 和 ChatGPT 能用订阅账号 OAuth 登录 CLI 吗?","expect_ids":["1bc7ca597e1624ee"],"topk":8,"note":"审查 F2,top-1 cos 0.932 回归哨兵"}
+{"qid":"G005","category":"模糊","query":"小红书起号怎么做?","expect_substr":["起号","小红书"],"topk":8,"note":"模糊主题类,应满额相关"}
+{"qid":"G006","category":"模糊","query":"提示词有什么技巧?","expect_substr":["提示词"],"topk":8,"note":"模糊主题类"}
+{"qid":"G007","category":"模糊","query":"怎么让 AI 回答更准确?","expect_nonempty":true,"topk":8,"note":"模糊主题,只要非空且相关"}
+{"qid":"G008","category":"负样本","query":"北京烤鸭的正宗做法是什么?","expect_empty":true,"topk":8,"note":"库里不该有,必须弃答"}
+{"qid":"G009","category":"负样本","query":"如何自己动手更换汽车轮胎?","expect_empty":true,"topk":8,"note":"必须弃答;修弃答前返回打印机维修记忆"}
+{"qid":"G010","category":"负样本","query":"冰岛旅游签证怎么办理?","expect_empty":true,"topk":8,"note":"必须弃答"}
+{"qid":"G011","category":"负样本","query":"西班牙语虚拟式的变位规则是什么?","expect_empty":true,"topk":8,"note":"必须弃答"}
+{"qid":"G012","category":"负样本","query":"量子计算的纠错码原理?","expect_empty":true,"topk":8,"note":"必须弃答"}
+{"qid":"G013","category":"事实","query":"记忆面板跑在哪个端口?","expect_substr":["7788"],"known_gap":true,"topk":8,"note":"覆盖缺口哨兵:MemoryHub 自身决策未入库,T2.6 后应命中"}
+{"qid":"G014","category":"决策","query":"MemoryHub 发版更新推送流程是怎么定的?","expect_substr":["发版","公开仓"],"known_gap":true,"topk":8,"note":"覆盖缺口哨兵,T2.6"}
+{"qid":"G015","category":"事实","query":"MemoryHub 用什么嵌入模型?","expect_substr":["text-embedding","嵌入"],"known_gap":true,"topk":8,"note":"覆盖缺口哨兵,T2.6"}
+{"qid":"G016","category":"偏好","query":"AI 自带记忆和 MemoryHub 冲突时该信哪个?","expect_substr":["优先于自带记忆","MemoryHub 优先","以 MemoryHub 为权威"],"known_gap":true,"topk":8,"note":"覆盖缺口哨兵:最高约束不在库,T2.6(收紧子串,避免匹配 evolution 垃圾条)"}

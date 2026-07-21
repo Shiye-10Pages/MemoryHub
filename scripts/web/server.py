@@ -31,7 +31,7 @@ from flask import Flask, request, jsonify, abort, Response  # noqa: E402
 
 import recall as recall_mod        # noqa: E402  recall.recall(query, topk)
 from review_queue import approve as rq_approve  # noqa: E402  approve(con, cid, cand)
-from embed import embed_texts, DIM, MODEL  # noqa: E402  队列降级入库需嵌入
+from embed import embed_texts, DIM, MODEL, pack_embedding  # noqa: E402  队列降级入库需嵌入
 
 WEB = os.path.dirname(os.path.abspath(__file__))
 HUB = os.path.dirname(os.path.dirname(WEB))
@@ -44,7 +44,7 @@ app = Flask(__name__, static_folder=None)   # 不挂静态目录(防穿越)
 
 
 def db():
-    c = sqlite3.connect(DB)
+    c = sqlite3.connect(DB, timeout=30)   # 管线持写锁时礼让等待,不 5 秒即 database is locked(审查 P1-1)
     c.row_factory = sqlite3.Row
     return c
 
@@ -99,7 +99,15 @@ def nightly_status():
                 break
     except Exception:
         pass
-    return {"state": state, "last_log": last, "log_count": len(logs)}
+    last_failure = ""
+    try:
+        fp = os.path.join(HUB, "logs", "last_failure.txt")
+        if os.path.exists(fp):
+            last_failure = open(fp, encoding="utf-8").read().strip()[:200]
+    except Exception:
+        pass
+    return {"state": state, "last_log": last, "log_count": len(logs),
+            "last_failure": last_failure}
 
 
 # ---------- 页面 ----------
@@ -939,7 +947,7 @@ def _queue_downgrade(c, cand):
                json.dumps(cand.get("sources", []), ensure_ascii=False),
                conf, (ts[:10] or None), "待核", "downgraded_from_queue"))
     c.execute("INSERT OR IGNORE INTO memory_embedding(memory_item_id,model,dim,vec) VALUES(?,?,?,?)",
-              (cid, MODEL, DIM, struct.pack(f"<{DIM}f", *vec)))
+              (cid,) + pack_embedding(vec))
 
 
 @app.route("/api/queue/bulk", methods=["POST"])
@@ -1133,20 +1141,33 @@ def api_update_apply():
                            message="拉取更新失败:" + (out or "未知错误") + "。可到 GitHub 手动更新。")
     except Exception as e:
         return jsonify(ok=False, url=gh, message="更新出错:" + str(e))
-    req = os.path.join(HUB, "requirements.txt")   # 依赖有变则补装,失败不阻断
+    req = os.path.join(HUB, "requirements.txt")   # 依赖有变则补装
+    dep_warn = ""
     if os.path.exists(req):
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", req],
-                           cwd=HUB, capture_output=True, text=True, timeout=180)
-        except Exception:
-            pass
+        # 与 setup.sh 一致:多镜像兜底,任一成功即止;全失败则警示(否则重启后可能起不来)
+        mirrors = ["https://pypi.tuna.tsinghua.edu.cn/simple",
+                   "https://mirrors.aliyun.com/pypi/simple",
+                   "https://pypi.org/simple"]
+        dep_ok = False
+        for m in mirrors:
+            try:
+                p = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                                    "--retries", "3", "-i", m, "-r", req],
+                                   cwd=HUB, capture_output=True, text=True, timeout=180)
+                if p.returncode == 0:
+                    dep_ok = True
+                    break
+            except Exception:
+                continue
+        if not dep_ok:
+            dep_warn = "(⚠️ 依赖补装未成功,如面板起不来请手动 pip install -r requirements.txt)"
     try:
         new = open(os.path.join(HUB, "VERSION"), encoding="utf-8").read().strip()
     except Exception:
         new = "?"
     _restart_soon()
     return jsonify(ok=True, restarting=True, version=new,
-                   message="已更新到 " + new + ",面板正在重启,请稍候…")
+                   message="已更新到 " + new + ",面板正在重启,请稍候…" + dep_warn)
 
 
 def _detect_json_kind(path):
@@ -1171,6 +1192,15 @@ _CONNECTOR = {
     "claude-web": ("ingest_claude_web.py", "claude.ai 网页对话"),
     "chatgpt": ("ingest_chatgpt.py", "ChatGPT 对话"),
 }
+
+
+def _run_step(script, *args, timeout=1800):
+    """跑一个管线脚本 → (ok, tail):ok=退出码 0;tail=stderr/stdout 末行(失败定位)。
+    check=False + 手动判 returncode:非零不抛,由调用方决定如何回报,杜绝'伪成功'(审查 P1)。"""
+    p = subprocess.run([sys.executable, os.path.join(HUB, "scripts", script), *args],
+                       cwd=HUB, capture_output=True, text=True, timeout=timeout)
+    lines = (p.stderr or p.stdout or "").strip().splitlines()
+    return p.returncode == 0, (lines[-1] if lines else "")
 
 
 @app.route("/api/import/claude-memory", methods=["POST"])
@@ -1214,7 +1244,7 @@ def api_import():
         with open(p, "wb") as d:
             d.write(raw)
         paths.append(p)
-    py, routed, unknown = sys.executable, [], []
+    routed, unknown, gtail = [], [], ""
     try:
         for p in paths:
             kind = _detect_json_kind(p)
@@ -1222,28 +1252,31 @@ def api_import():
                 unknown.append(os.path.basename(p))
                 continue
             script, label = _CONNECTOR[kind]
-            subprocess.run([py, os.path.join(HUB, "scripts", script), "--file", p],
-                           cwd=HUB, capture_output=True, text=True, timeout=600)
+            ok, tail = _run_step(script, "--file", p, timeout=600)
+            if not ok:   # 连接器崩溃 → 如实报错,别再说"已导过"(数据可能没进来)
+                return jsonify({"ok": False, "message": f"导入【{label}】失败:连接器报错,数据未入库。",
+                                "detail": tail}), 500
             routed.append(label)
         if not routed:
             return jsonify({"ok": False,
                             "message": f"没认出可导入的记忆源(收到:{', '.join(unknown) or '空'})。请确认是 Claude / ChatGPT 官方导出。"}), 400
-        gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
-                            cwd=HUB, capture_output=True, text=True, timeout=1800)
+        gok, gtail = _run_step("gate.py", "--near", "0.88", timeout=1800)
+        if not gok:
+            return jsonify({"ok": False, "message": "保真闸处理失败(候选已采集,稍后可重试,会从断点继续)。",
+                            "detail": gtail}), 500
     except Exception as e:
         return jsonify({"ok": False, "message": f"处理失败:{e}"}), 500
     c = db()
     qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     c.close()
-    tail = (gr.stdout or gr.stderr or "").strip().splitlines()
     src = "、".join(routed)
     if qn == 0:
         return jsonify({"ok": True, "queued": 0,
                         "message": f"已处理【{src}】,但没有可导入的新记忆(可能之前已导过)。",
-                        "detail": tail[-1] if tail else ""})
+                        "detail": gtail})
     return jsonify({"ok": True, "queued": qn,
                     "message": f"已从【{src}】导入,{qn} 条候选进入「待确认队列」,去逐条批准 / 丢弃。",
-                    "detail": tail[-1] if tail else ""})
+                    "detail": gtail})
 
 
 @app.route("/api/import/claude-code", methods=["POST"])
@@ -1252,24 +1285,21 @@ def api_import_claude_code():
     if not _alibaba_key():
         return jsonify({"ok": False, "need_key": True,
                         "message": "扫描需要先在「设置」里填 API Key(用于把记忆向量化)。"}), 400
-    py = sys.executable
     try:
-        subprocess.run([py, os.path.join(HUB, "scripts", "ingest.py")],
-                       cwd=HUB, capture_output=True, text=True, timeout=600)
-        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
-                       cwd=HUB, capture_output=True, text=True, timeout=1800)
-        gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
-                            cwd=HUB, capture_output=True, text=True, timeout=1800)
+        for step, ta in (("ingest.py", 600), ("distill.py", 1800), ("gate.py", 1800)):
+            args = ("--near", "0.88") if step == "gate.py" else ()
+            ok, tail = _run_step(step, *args, timeout=ta)
+            if not ok:
+                return jsonify({"ok": False, "message": f"扫描失败({step}):{tail or '子进程非零退出'}"}), 500
     except Exception as e:
         return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
     c = db()
     qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='claude-code'").fetchone()[0]
     c.close()
-    tail = (gr.stdout or gr.stderr or "").strip().splitlines()
     return jsonify({"ok": True, "queued": qn,
                     "message": f"已扫描本机 Claude Code 对话(累计 {raw_n} 条原始记录),「待确认队列」现有 {qn} 条。",
-                    "detail": tail[-1] if tail else ""})
+                    "detail": tail})
 
 
 @app.route("/api/import/codex", methods=["POST"])
@@ -1281,24 +1311,21 @@ def api_import_codex():
     if not glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl")):
         return jsonify({"ok": False,
                         "message": "未找到本机 Codex 会话(~/.codex/sessions):没装 Codex CLI 或还没用它聊过。"}), 400
-    py = sys.executable
     try:
-        subprocess.run([py, os.path.join(HUB, "scripts", "ingest_codex.py")],
-                       cwd=HUB, capture_output=True, text=True, timeout=600)
-        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
-                       cwd=HUB, capture_output=True, text=True, timeout=1800)
-        gr = subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
-                            cwd=HUB, capture_output=True, text=True, timeout=1800)
+        for step, ta in (("ingest_codex.py", 600), ("distill.py", 1800), ("gate.py", 1800)):
+            args = ("--near", "0.88") if step == "gate.py" else ()
+            ok, tail = _run_step(step, *args, timeout=ta)
+            if not ok:
+                return jsonify({"ok": False, "message": f"扫描失败({step}):{tail or '子进程非零退出'}"}), 500
     except Exception as e:
         return jsonify({"ok": False, "message": f"扫描失败:{e}"}), 500
     c = db()
     qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
     raw_n = c.execute("SELECT count(*) FROM raw_event WHERE source='codex'").fetchone()[0]
     c.close()
-    tail = (gr.stdout or gr.stderr or "").strip().splitlines()
     return jsonify({"ok": True, "queued": qn,
                     "message": f"已扫描本机 Codex 对话(累计 {raw_n} 条原始记录),「待确认队列」现有 {qn} 条。",
-                    "detail": tail[-1] if tail else ""})
+                    "detail": tail})
 
 
 SYNC_STATE = os.path.join(HUB, "logs", "sync_state.json")
@@ -1314,20 +1341,23 @@ def _sync_pipeline():
     if not _sync_lock.acquire(blocking=False):
         return {"ok": False, "message": "已有一次同步在进行中"}
     try:
-        py = sys.executable
-        for script in ("ingest.py", "ingest_codex.py"):
-            subprocess.run([py, os.path.join(HUB, "scripts", script)],
-                           cwd=HUB, capture_output=True, text=True, timeout=600)
-        subprocess.run([py, os.path.join(HUB, "scripts", "distill.py")],
-                       cwd=HUB, capture_output=True, text=True, timeout=1800)
-        subprocess.run([py, os.path.join(HUB, "scripts", "gate.py"), "--near", "0.88"],
-                       cwd=HUB, capture_output=True, text=True, timeout=1800)
-        c = db()
-        qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
-        rn = c.execute("SELECT count(*) FROM raw_event").fetchone()[0]
-        c.close()
-        res = {"ok": True, "queued": qn,
-               "message": f"同步完成:累计 {rn} 条原始记录,「待确认」现有 {qn} 条。"}
+        failed = None
+        for script in ("ingest.py", "ingest_codex.py", "distill.py", "gate.py"):
+            args = ("--near", "0.88") if script == "gate.py" else ()
+            ta = 600 if script.startswith("ingest") else 1800
+            ok, tail = _run_step(script, *args, timeout=ta)
+            if not ok:
+                failed = (script, tail)
+                break
+        if failed:
+            res = {"ok": False, "message": f"同步失败({failed[0]}):{failed[1][:120] or '子进程非零退出'}"}
+        else:
+            c = db()
+            qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
+            rn = c.execute("SELECT count(*) FROM raw_event").fetchone()[0]
+            c.close()
+            res = {"ok": True, "queued": qn,
+                   "message": f"同步完成:累计 {rn} 条原始记录,「待确认」现有 {qn} 条。"}
     except Exception as e:
         res = {"ok": False, "message": f"同步失败:{str(e)[:160]}"}
     finally:
@@ -1493,6 +1523,32 @@ def api_backup():
             pass
         return resp
     return send_file(zpath, as_attachment=True, download_name=os.path.basename(zpath))
+
+
+_GOLDEN_CACHE = {"data": None, "ts": None}
+
+
+@app.route("/api/golden", methods=["POST"])
+def api_golden():
+    """保真跑分:对黄金题集跑召回,算 Hit@k / 弃答率 / 缺口闭合。
+    POST + 写头:每次跑会对每题调一次嵌入 API,防跨源烧 token。默认返回缓存,refresh=1 重跑。"""
+    require_write()
+    if not _alibaba_key():
+        return jsonify({"ok": False, "need_key": True,
+                        "message": "跑分需要嵌入 API Key(把查询向量化)。请在「设置」里配好。"}), 400
+    data = request.get_json(force=True, silent=True) or {}
+    if not data.get("refresh") and _GOLDEN_CACHE["data"]:
+        return jsonify({"ok": True, "cached": True, "ts": _GOLDEN_CACHE["ts"], **_GOLDEN_CACHE["data"]})
+    try:
+        sys.path.insert(0, os.path.join(HUB, "eval"))
+        import run_golden
+        res = run_golden.score(DB)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "message": "未找到黄金题集 eval/golden.jsonl。"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"跑分失败:{str(e)[:160]}"}), 500
+    _GOLDEN_CACHE.update({"data": res, "ts": time.strftime("%Y-%m-%d %H:%M")})
+    return jsonify({"ok": True, "cached": False, "ts": _GOLDEN_CACHE["ts"], **res})
 
 
 if __name__ == "__main__":

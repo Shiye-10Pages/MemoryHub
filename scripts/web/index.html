@@ -131,6 +131,7 @@ input[type=text]{flex:1;min-width:200px}
       <button class="navi sub" data-v="queue"><span class="ico">✅</span>待确认<span class="pip" id="qpip" style="display:none"></span></button>
     </div>
     <button class="navi" data-v="map"><span class="ico">🗺️</span>地图</button>
+    <button class="navi" data-v="golden"><span class="ico">🎯</span>保真跑分</button>
     <button class="navi" data-v="import"><span class="ico">📥</span>导入</button>
     <button class="navi" data-v="settings"><span class="ico">⚙️</span>设置<span class="pip" id="upip" style="display:none">新</span></button>
     <div class="foot" id="foot">本地记忆面板<br>127.0.0.1:7788</div>
@@ -142,6 +143,7 @@ input[type=text]{flex:1;min-width:200px}
     <div id="view-map" style="display:none"></div>
     <div id="view-retro" style="display:none"></div>
     <div id="view-queue" style="display:none"></div>
+    <div id="view-golden" style="display:none"></div>
     <div id="view-import" style="display:none"></div>
     <div id="view-settings" style="display:none">
       <div class="subtabs">
@@ -924,10 +926,55 @@ async function renderSettings(){
 }
 
 // ---- 路由 ----
-const R={dash:renderDash,browse:renderBrowse,recall:renderRecall,map:renderMap,retro:renderRetro,queue:renderQueue,import:renderImport,settings:renderSettings};
+let goldenData=null;
+function gMetric(label,s,n,pct,hint,good){
+  const col=good?'var(--ac)':'var(--dng)';
+  return `<div class="panel" style="text-align:center;flex:1;margin:0">
+    <div style="font-size:12.5px;color:var(--mut)">${label}</div>
+    <div style="font-size:30px;font-weight:700;color:${col};margin:4px 0">${Math.round(pct*100)}%</div>
+    <div style="font-size:12px;color:var(--faint)">${s}/${n}${hint?' · '+hint:''}</div></div>`;
+}
+async function runGolden(refresh){
+  const b=$('#gbtn'),st=$('#gstatus');
+  if(b)b.disabled=true; if(st)st.textContent='跑分中…每题跑一次真实召回,约十几秒,别关页面';
+  try{
+    const d=await post('/api/golden',{refresh:refresh?1:0});
+    if(!d.ok){if(st)st.textContent=(d.need_key?'需要先在「设置」里配 API Key':(d.message||'跑分失败'));if(b)b.disabled=false;return;}
+    goldenData=d;renderGolden();
+  }catch(e){if(st)st.textContent='跑分失败:'+esc(e.message);if(b)b.disabled=false;}
+}
+function renderGolden(){
+  const v=$('#view-golden');
+  const head=`<div class="head"><h1>🎯 保真跑分</h1><p>用固定的「黄金题集」检验召回:<b>该召回的召回、不该召回的敢说"不知道"</b>。这是"高保真"可展示的证据,也是发版守门线。</p></div>`;
+  if(!goldenData){
+    v.innerHTML=head+`<div class="panel"><div style="color:var(--mut);font-size:13.5px;margin-bottom:10px">点击开始:对每道题跑一次真实召回(会用少量 API 额度把查询向量化,约十几秒)。</div>
+      <button class="btn" id="gbtn" onclick="runGolden(1)">开始跑分</button> <span id="gstatus" style="color:var(--mut);font-size:12.5px;margin-left:8px"></span></div>`;
+    return;
+  }
+  const d=goldenData,pass=d.passed,pos=d.counts.positive,neg=d.counts.negative,gap=d.counts.gap;
+  const badge=`<div style="display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:15px;color:#fff;background:${pass?'var(--ac)':'var(--dng)'}">${pass?'✅ 发版门槛通过':'❌ 未过门槛'}</div>`;
+  const rows=d.detail.map(x=>{
+    const mark=x.ok?'✅':(x.bucket==='gap'?'⭕':'❌');
+    return `<tr><td style="padding:3px 6px">${mark}</td><td style="padding:3px 6px;color:var(--faint);white-space:nowrap">${esc(x.qid)}·${esc(x.cat||'')}</td><td style="padding:3px 6px">${esc(x.query||'')}</td><td style="padding:3px 6px;text-align:right;color:var(--faint)">${x.top_cos==null?'—':x.top_cos}</td></tr>`;
+  }).join('');
+  v.innerHTML=head+
+    `<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${badge}
+      <span style="color:var(--mut);font-size:12.5px">题集 ${d.detail.length} 题 · 库 ${esc(d.db||'')} · ${esc(d.ts||'')}${d.cached?' · 缓存':''}</span>
+      <button class="btn" id="gbtn" style="margin-left:auto" onclick="runGolden(1)">重新跑分</button>
+      <span id="gstatus" style="color:var(--mut);font-size:12.5px"></span></div>`+
+    `<div style="display:flex;gap:10px;margin:10px 0">
+      ${gMetric('正样本 Hit@k',pos[0],pos[1],d.positive_hit,'该记的记住了',d.positive_hit>=d.threshold)}
+      ${gMetric('负样本 弃答率',neg[0],neg[1],d.negative_abstain,'防幻觉核心',d.negative_abstain>=1)}
+      ${gMetric('覆盖缺口 已闭合',gap[0],gap[1],d.gap_closed,'待夜跑补齐',true)}</div>`+
+    `<div class="panel"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="color:var(--faint);text-align:left"><th></th><th style="padding:3px 6px">题</th><th style="padding:3px 6px">查询</th><th style="padding:3px 6px;text-align:right">相关度</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div style="color:var(--faint);font-size:11.5px;margin-top:8px">✅ 命中 · ❌ 未命中 · ⭕ 覆盖缺口(库里暂无该决策,待夜跑补进来)</div></div>`;
+}
+const R={dash:renderDash,browse:renderBrowse,recall:renderRecall,map:renderMap,retro:renderRetro,queue:renderQueue,golden:renderGolden,import:renderImport,settings:renderSettings};
 function show(v){
   document.querySelectorAll('.navi').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  ['dash','browse','recall','map','retro','queue','import','settings'].forEach(x=>$('#view-'+x).style.display=x===v?'block':'none');
+  ['dash','browse','recall','map','retro','queue','golden','import','settings'].forEach(x=>$('#view-'+x).style.display=x===v?'block':'none');
   if(['browse','recall','retro','queue'].includes(v))openMem(true);
   R[v]();
 }
