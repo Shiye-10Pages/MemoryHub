@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 *.bak
 *.db
+*.db.bak*
 *.db-shm
 *.db-wal
 logs/*

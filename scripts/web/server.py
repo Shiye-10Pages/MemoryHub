@@ -1132,12 +1132,26 @@ def api_update_apply():
         return jsonify(ok=False, url=gh,
                        message="系统未安装 git,无法一键更新。装好 git 后重试,或手动到 GitHub 下载最新版。")
     try:
-        rc, dirty = _git(["status", "--porcelain"])
+        # 只看"被跟踪文件"的改动:未跟踪文件(你往文件夹里放的导出 zip、笔记、数据库备份)
+        # 不会被 git pull 覆盖,不该拦更新——原来含 ?? 项,等于放个文件就永久卡死。
+        rc, dirty = _git(["status", "--porcelain", "--untracked-files=no"])
         if rc == 0 and dirty:
+            names = [ln[3:] for ln in dirty.splitlines() if len(ln) > 3][:3]
             return jsonify(ok=False,
-                           message="检测到你本地改动过代码(未提交),一键更新已中止以免覆盖你的改动。请先 git stash / commit,或手动更新。")
+                           message="这些仓库文件被改过且未提交,一键更新已中止以免覆盖:"
+                                   + "、".join(names) + "。请先 git stash / commit,或手动更新。")
+        rc, _ = _git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        if rc != 0:
+            return jsonify(ok=False, url=gh,
+                           message="当前分支没有跟踪任何远端分支(多半是自己开的本地分支),一键更新只认跟着 main 走的安装。请手动 git 更新。")
         rc, out = _git(["pull", "--ff-only"], timeout=120)
         if rc != 0:
+            rc2, cnt = _git(["rev-list", "--left-right", "--count", "@{u}...HEAD"])
+            ahead = cnt.split()[1] if rc2 == 0 and len(cnt.split()) == 2 else "0"
+            if ahead != "0":
+                return jsonify(ok=False, url=gh,
+                               message=f"本地有 {ahead} 个提交是远端没有的(已分叉),一键更新推不动。"
+                                       "请手动决定 rebase 还是丢弃,再更新。")
             return jsonify(ok=False, url=gh,
                            message="拉取更新失败:" + (out or "未知错误") + "。可到 GitHub 手动更新。")
     except Exception as e:
@@ -1189,9 +1203,12 @@ def _detect_json_kind(path):
 
 
 _CONNECTOR = {
-    "memories": ("ingest_claude_memories.py", "Claude 云端记忆"),
-    "claude-web": ("ingest_claude_web.py", "claude.ai 网页对话"),
-    "chatgpt": ("ingest_chatgpt.py", "ChatGPT 对话"),
+    # kind: (连接器脚本, 显示名, 需 distill 提纯的 project)
+    # 第三项 None = 连接器自己产候选(云端记忆已成型);非 None = 连接器只写 raw_event,
+    # 必须再跑 distill.py 才有候选给 gate(gate 只读 staging/candidates.jsonl)。
+    "memories": ("ingest_claude_memories.py", "Claude 云端记忆", None),
+    "claude-web": ("ingest_claude_web.py", "claude.ai 网页对话", "claude-web"),
+    "chatgpt": ("ingest_chatgpt.py", "ChatGPT 对话", "chatgpt"),
 }
 
 
@@ -1237,6 +1254,17 @@ def _run_step(script, *args, timeout=1800):
     return p.returncode == 0, (lines[-1] if lines else "")
 
 
+def _memory_counts():
+    """(已入库记忆数, 待确认队列数)。导入前后各取一次:gate 把有把握的直接写进
+    memory_item、拿不准的才进队列,只数队列会把"5 条已入库"误报成"没有新记忆"。"""
+    c = db()
+    n_item = c.execute("SELECT count(*) FROM memory_item").fetchone()[0]
+    n_queue = c.execute("SELECT count(*) FROM human_queue "
+                        "WHERE status='pending' OR status IS NULL").fetchone()[0]
+    c.close()
+    return n_item, n_queue
+
+
 @app.route("/api/import/claude-memory", methods=["POST"])
 @app.route("/api/import", methods=["POST"])
 def api_import():
@@ -1279,6 +1307,7 @@ def api_import():
             d.write(raw)
         paths.append(p)
     routed, unknown, gtail = [], [], ""
+    n0_item, n0_queue = _memory_counts()          # 导入前基线:成功与否按增量判,不看总数
     try:
         with _pipeline_lock():
             for p in paths:
@@ -1286,11 +1315,17 @@ def api_import():
                 if kind not in _CONNECTOR:
                     unknown.append(os.path.basename(p))
                     continue
-                script, label = _CONNECTOR[kind]
+                script, label, distill_project = _CONNECTOR[kind]
                 ok, tail = _run_step(script, "--file", p, timeout=600)
                 if not ok:   # 连接器崩溃 → 如实报错,别再说"已导过"(数据可能没进来)
                     return jsonify({"ok": False, "message": f"导入【{label}】失败:连接器报错,数据未入库。",
                                     "detail": tail}), 500
+                if distill_project:   # 原始对话 → 提纯成候选,否则 gate 无米下锅(候选文件是空的)
+                    ok, tail = _run_step("distill.py", "--project", distill_project, timeout=1800)
+                    if not ok:
+                        return jsonify({"ok": False,
+                                        "message": f"提纯【{label}】失败:原始对话已入库,再点一次导入会从断点继续。",
+                                        "detail": tail}), 500
                 routed.append(label)
             if not routed:
                 return jsonify({"ok": False,
@@ -1301,18 +1336,23 @@ def api_import():
                                 "detail": gtail}), 500
     except RuntimeError as e:
         return jsonify({"ok": False, "message": str(e)}), 409
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False,
+                        "message": "处理超时(导出很大时会这样):已处理的部分不会丢,再点一次导入会从断点继续。"}), 504
     except Exception as e:
         return jsonify({"ok": False, "message": f"处理失败:{e}"}), 500
-    c = db()
-    qn = c.execute("SELECT count(*) FROM human_queue WHERE status='pending' OR status IS NULL").fetchone()[0]
-    c.close()
+    n1_item, n1_queue = _memory_counts()
+    added, queued = max(0, n1_item - n0_item), max(0, n1_queue - n0_queue)
     src = "、".join(routed)
-    if qn == 0:
-        return jsonify({"ok": True, "queued": 0,
-                        "message": f"已处理【{src}】,但没有可导入的新记忆(可能之前已导过)。",
+    if added == 0 and queued == 0:
+        return jsonify({"ok": True, "queued": 0, "added": 0,
+                        "message": f"已处理【{src}】,但没有新增记忆(内容之前已导过,或没通过保真闸)。",
                         "detail": gtail})
-    return jsonify({"ok": True, "queued": qn,
-                    "message": f"已从【{src}】导入,{qn} 条候选进入「待确认队列」,去逐条批准 / 丢弃。",
+    # gate 有把握的直接入库、拿不准的才进队列 → 两者都要报,只看队列会把成功说成"没导入"
+    part = ([f"{added} 条已入库"] if added else []) + \
+           ([f"{queued} 条进「待确认队列」等你批准"] if queued else [])
+    return jsonify({"ok": True, "queued": queued, "added": added,
+                    "message": f"已从【{src}】导入:" + "、".join(part) + "。",
                     "detail": gtail})
 
 
